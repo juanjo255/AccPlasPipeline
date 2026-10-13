@@ -1,6 +1,8 @@
-# accessory_plasmids
+# Accessory Plasmids Identifier
 
 Nextflow pipeline to detect accessory plasmids in *Sinorhizobium meliloti* genome assemblies.
+
+This is result of our work done annotating and describing novel *Sinorhizobium meliloti* accessory plasmids.
 
 ## 0. Genome assembly (upstream, not part of this pipeline)
 
@@ -36,8 +38,7 @@ Combine them with a comma, e.g. `-profile singularity,slurm`.
 
 ### 1. Contig length filter (`seqkit seq`)
 
-Keeps contigs **up to `--max_contig_len` bp each** (default `1000000`). This removes the
-chromosome, pSymA and pSymB, leaving candidate accessory replicons. The threshold is applied per contig, not to the total genome size.
+Keeps contigs **up to `--max_contig_len` bp each** (default `1000000`). This removes the chromosome, pSymA and pSymB, leaving candidate accessory replicons.
 
 By default, each contig ID gets the sample name appended (`contig_4` → `contig_4_TG107`),
 so IDs stay unique when contigs from many genomes are pooled. Turn this off with
