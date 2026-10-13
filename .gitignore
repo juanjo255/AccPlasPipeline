@@ -1,0 +1,104 @@
+# ----------------------------------------------------------------------
+# Nextflow runtime files
+# ----------------------------------------------------------------------
+work/
+.nextflow/
+.nextflow.log*
+.nextflow.pid
+timeline.html*
+report.html*
+trace.txt*
+dag.*
+null/
+
+# ----------------------------------------------------------------------
+# Pipeline outputs (default --outdir and common alternatives)
+# ----------------------------------------------------------------------
+results/
+results_*/
+output/
+pipeline_info/
+
+# ----------------------------------------------------------------------
+# Containers and software environments
+# ----------------------------------------------------------------------
+*.img
+*.sif
+singularity/
+apptainer/
+conda_envs/
+.conda/
+
+# ----------------------------------------------------------------------
+# Sequence data, alignments and databases (never commit raw data)
+# Small test files can be force-added: git add -f tests/data/<file>
+# ----------------------------------------------------------------------
+*.fastq
+*.fq
+*.fastq.gz
+*.fq.gz
+*.fast5
+*.pod5
+*.bam
+*.bam.bai
+*.cram
+*.sam
+*.fasta
+*.fa
+*.fna
+*.faa
+*.ffn
+*.fasta.gz
+*.fa.gz
+*.fna.gz
+*.gbff
+*.gbk
+*.gff
+*.gff3
+*.fai
+*.mmi
+*.msh
+databases/
+db/
+
+# ----------------------------------------------------------------------
+# HPC / SLURM logs
+# ----------------------------------------------------------------------
+slurm_logs/
+slurm-*.out
+*.err
+*.out
+
+# ----------------------------------------------------------------------
+# Local configs that may hold user- or cluster-specific settings
+# (e.g. account, e-mail, absolute paths, Tower/Seqera tokens)
+# ----------------------------------------------------------------------
+*.local.config
+params.local.*
+.env
+secrets.*
+
+# ----------------------------------------------------------------------
+# Python / R / notebooks
+# ----------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+.Rhistory
+.RData
+.Rproj.user/
+
+# ----------------------------------------------------------------------
+# Editors and OS
+# ----------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# ----------------------------------------------------------------------
+# Claude Code local settings
+# ----------------------------------------------------------------------
+.claude/settings.local.json
