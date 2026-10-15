@@ -11,9 +11,6 @@ process GENOMAD_ENDTOEND {
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
-    container "${ workflow.containerEngine in ['singularity', 'apptainer']
-        ? 'https://depot.galaxyproject.org/singularity/genomad:1.12.0--pyhdfd78af_0'
-        : 'quay.io/biocontainers/genomad:1.12.0--pyhdfd78af_0' }"
 
     input:
     tuple val(meta), path(fasta)

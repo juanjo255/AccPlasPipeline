@@ -1,0 +1,19 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - conda-forge::python=3.8.19
+  - conda-forge::numpy=1.19.5
+  - conda-forge::pandas=1.4.4
+  - conda-forge::scipy=1.9.1
+  - conda-forge::scikit-learn=1.1.2
+  - conda-forge::numba=0.55.2
+  - conda-forge::python-blosc=1.11.1
+  - conda-forge::git
+  - conda-forge::pip
+  - bioconda::mummer4=4.0.1
+  - pip:
+      - igraph==0.11.8
+      - git+https://github.com/michaelkyu/PlasX.git@5c9acfd00a597da27ef5261acf72dbaf2117b645
+      - git+https://github.com/michaelkyu/MobMess.git@97c0cfc0f810062e32dcf34f700b1fc8be8029a4

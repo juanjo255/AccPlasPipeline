@@ -8,9 +8,6 @@ process PLSDB_SELECT {
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
-    container "${ workflow.containerEngine in ['singularity', 'apptainer']
-        ? 'https://depot.galaxyproject.org/singularity/python:3.12'
-        : 'quay.io/biocontainers/python:3.12' }"
 
     input:
     path nuccore

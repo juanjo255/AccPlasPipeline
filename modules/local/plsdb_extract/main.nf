@@ -7,9 +7,6 @@ process PLSDB_EXTRACT {
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
-    container "${ workflow.containerEngine in ['singularity', 'apptainer']
-        ? 'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/4f/4fe272ab9a519cf418160471a485b5ef50ea3f571a8e4555a826f70a4d8243ae/data'
-        : 'community.wave.seqera.io/library/seqkit:2.13.0--05c0a96bf9fb2751' }"
 
     input:
     path plsdb_fasta

@@ -14,28 +14,31 @@ nextflow run nf-core/bacass -r 2.6.0 -profile singularity \
     --input bacass_samplesheet.csv --assembly_type hybrid --outdir results_bacass
 ```
 
-Assemblies from any other assembler also work.
+The pipeline currently requires **Flye** assemblies: contig circularity is read from
+Flye's `assembly_info.txt`.
 
 ## Input
 
-A CSV samplesheet with one assembly per sample (see `assets/samplesheet_example.csv`):
+A CSV samplesheet with one Flye assembly per sample (see `assets/samplesheet_example.csv`):
 
-| column     | description                                              |
-|------------|----------------------------------------------------------|
-| `sample`   | unique sample name, without whitespace                   |
-| `assembly` | path to the assembly FASTA (`.fasta`, `.fa`, `.fna`, `.gz` accepted) |
+| column          | description                                              |
+|-----------------|----------------------------------------------------------|
+| `sample`        | unique sample name, without whitespace                   |
+| `assembly`      | path to the assembly FASTA (`.fasta`, `.fa`, `.fna`, `.gz` accepted) |
+| `assembly_info` | path to Flye's `assembly_info.txt` for that assembly     |
 
 ## Usage
 
 ```bash
-nextflow run accessory_plasmids -profile singularity \
+nextflow run accessory_plasmids -profile conda \
     --input samplesheet.csv --genomad_db /path/to/genomad_db \
     --plsdb_fasta plsdb.fasta --plsdb_nuccore nuccore.csv --plsdb_typing typing.csv \
     --outdir results
 ```
 
-Profiles: `singularity`, `apptainer`, `docker` and `conda` choose how software is provided, and `slurm` submits jobs to SLURM.
-Combine them with a comma, e.g. `-profile singularity,slurm`.
+Software is provided only through conda: always use the `conda` profile. Each step builds its own
+environment from `modules/local/<step>/environment.yml` the first time it runs.
+Add `slurm` to submit jobs to SLURM: `-profile conda,slurm`.
 
 ## Steps
 
@@ -105,6 +108,34 @@ Output: `results/03_plsdb_related/`
 - `plsdb_related.ids.txt`: selected accessions
 - `<sample>.mash_dist_plsdb.tsv`: Mash hits (only with `--plsdb_mash`)
 
+### 4. De-replication with MobMess (`mobmess systems`)
+
+Sample contigs (Step 1) and related PLSDB plasmids (Step 3) are pooled, sorted by ID and clustered with
+[MobMess](https://doi.org/10.1038/s41564-024-01610-3) (default 90% identity and 90% coverage).
+Circularity comes from Flye's `assembly_info.txt` (`circ.` column) for sample contigs and from
+`NUCCORE_Topology` for PLSDB plasmids. The run stops on duplicated IDs or if any sequence lacks circularity.
+
+Clusters are then kept only if they look like real plasmids:
+
+| MobMess cluster type    | kept when                                                              |
+|-------------------------|------------------------------------------------------------------------|
+| `fragment`              | never                                                                  |
+| `backbone`              | all members < `--mobmess_max_len`                                      |
+| `compound`              | all members < `--mobmess_max_len` and at least one circular member     |
+| `maximal_not_in_system` | as `compound`, plus at least one member is a sample contig (not PLSDB) |
+
+Clusters made only of PLSDB plasmids are kept when they are `backbone` or `compound`: MobMess places
+them in plasmid systems, so their relationship to *S. meliloti* plasmids is established. A PLSDB-only
+`maximal_not_in_system` cluster is related only through the PLSDB annotation used to select it,
+so it is discarded.
+
+Output: `results/04_mobmess/`
+- `<sample>.circular.tsv`: circularity of each sample's filtered contigs
+- `mobmess_input.fasta`, `mobmess_input.circular.tsv`: pooled MobMess input
+- `mobmess_clusters.txt`, `mobmess_systems.txt`, `mobmess_contigs.txt`, `mobmess_ani*.txt`, `*_graph.*`: MobMess output
+- `mobmess.filtered_clusters.tsv`: clusters that passed, with `length` and `source` (`sample`/`plsdb`)
+- `mobmess.filtered.fasta`, `mobmess.filtered_ids.txt`: sequences that passed
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -122,6 +153,7 @@ Output: `results/03_plsdb_related/`
 | `--plsdb_sketch`      | -         | PLSDB Mash sketch (required with `--plsdb_mash`) |
 | `--mash_max_dist`     | `0.1`     | `mash dist -d`                                 |
 | `--mash_max_pvalue`   | `0.1`     | `mash dist -v`                                 |
+| `--mobmess_max_len`   | `1000000` | MobMess clusters are kept only if all members are shorter (bp) |
 
 ## Software
 
@@ -129,4 +161,6 @@ Output: `results/03_plsdb_related/`
 - seqkit 2.13.0
 - geNomad 1.12.0 (database v1.9)
 - Mash 2.3, Python 3.12
+- MobMess (commit `97c0cfc`) and PlasX (commit `5c9acfd`), installed from GitHub; MUMmer 4.0.1
+- conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

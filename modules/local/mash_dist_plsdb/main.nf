@@ -7,9 +7,6 @@ process MASH_DIST_PLSDB {
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
-    container "${ workflow.containerEngine in ['singularity', 'apptainer']
-        ? 'https://depot.galaxyproject.org/singularity/mash:2.3--hf85e966_11'
-        : 'quay.io/biocontainers/mash:2.3--hf85e966_11' }"
 
     input:
     tuple val(meta), path(fasta)

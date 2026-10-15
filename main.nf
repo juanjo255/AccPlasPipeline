@@ -2,8 +2,8 @@
 /*
  * accessory_plasmids: detect accessory plasmids in Sinorhizobium meliloti assemblies.
  *
- * Input : samplesheet CSV with columns `sample,assembly` (one genome assembly per row,
- *         e.g. produced by nf-core/bacass 2.6.0).
+ * Input : samplesheet CSV with columns `sample,assembly,assembly_info` (one Flye
+ *         assembly per row; assembly_info = Flye's assembly_info.txt).
  */
 
 include { SEQKIT_FILTER_CONTIGS } from './modules/local/seqkit_filter_contigs'
@@ -11,11 +11,14 @@ include { GENOMAD_ENDTOEND      } from './modules/local/genomad_endtoend'
 include { MASH_DIST_PLSDB       } from './modules/local/mash_dist_plsdb'
 include { PLSDB_SELECT          } from './modules/local/plsdb_select'
 include { PLSDB_EXTRACT         } from './modules/local/plsdb_extract'
+include { FLYE_CIRCULARITY      } from './modules/local/flye_circularity'
+include { MOBMESS_SYSTEMS       } from './modules/local/mobmess_systems'
+include { MOBMESS_FILTER_CLUSTERS } from './modules/local/mobmess_filter_clusters'
 
 workflow {
 
     if (!params.input) {
-        error "Please provide a samplesheet with --input (columns: sample,assembly)"
+        error "Please provide a samplesheet with --input (columns: sample,assembly,assembly_info)"
     }
     if (!params.genomad_db) {
         error "Please provide the geNomad database directory with --genomad_db"
@@ -30,18 +33,21 @@ workflow {
     // ---------------------------------------------------------------------
     // Read and validate the samplesheet
     // ---------------------------------------------------------------------
-    ch_assemblies = channel
+    ch_samples = channel
         .fromPath(params.input, checkIfExists: true)
         .splitCsv(header: true, strip: true)
         .map { row ->
-            if (!row.sample || !row.assembly) {
-                error "Samplesheet row is missing 'sample' or 'assembly': ${row}"
+            if (!row.sample || !row.assembly || !row.assembly_info) {
+                error "Samplesheet row is missing 'sample', 'assembly' or 'assembly_info': ${row}"
             }
             if (row.sample =~ /\s/) {
                 error "Sample names must not contain whitespace: '${row.sample}'"
             }
-            [ [id: row.sample], file(row.assembly, checkIfExists: true) ]
+            [ [id: row.sample], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true) ]
         }
+
+    ch_assemblies    = ch_samples.map { meta, assembly, _info -> [ meta, assembly ] }
+    ch_assembly_info = ch_samples.map { meta, _assembly, info -> [ meta, info ] }
 
     // Fail early on duplicated sample names (they would collide in contig IDs and outputs)
     ch_assemblies
@@ -113,6 +119,37 @@ workflow {
         PLSDB_SELECT.out.ids
     )
 
-    // PLSDB_EXTRACT.out.fasta + PLSDB_SELECT.out.circular are pooled with the
-    // sample contigs for de-replication in the next step
+    // ---------------------------------------------------------------------
+    // Step 4: de-replication with MobMess
+    // ---------------------------------------------------------------------
+    // Circularity of the sample contigs from Flye's assembly_info.txt
+    FLYE_CIRCULARITY (
+        ch_small_contigs.join(ch_assembly_info),
+        params.add_sample_suffix
+    )
+
+    // Pool sample contigs + related PLSDB plasmids (and their circularity) into one run
+    ch_mobmess_fasta = ch_small_contigs
+        .map { _meta, fasta -> fasta }
+        .mix(PLSDB_EXTRACT.out.fasta)
+        .collect()
+    ch_mobmess_circular = FLYE_CIRCULARITY.out.circular
+        .map { _meta, tsv -> tsv }
+        .mix(PLSDB_SELECT.out.circular)
+        .collect()
+
+    MOBMESS_SYSTEMS (
+        ch_mobmess_fasta,
+        ch_mobmess_circular
+    )
+
+    // Keep clusters that look like real plasmids (see README, Step 4)
+    MOBMESS_FILTER_CLUSTERS (
+        MOBMESS_SYSTEMS.out.clusters,
+        MOBMESS_SYSTEMS.out.fasta,
+        PLSDB_SELECT.out.ids,
+        params.mobmess_max_len
+    )
+
+    // MOBMESS_FILTER_CLUSTERS.out.fasta feeds the next step of the pipeline
 }
