@@ -1,6 +1,7 @@
 /*
- * Circular (1) / linear (0) flag of each length-filtered contig, from Flye's
- * assembly_info.txt (`circ.` column). IDs are renamed as in the length filter.
+ * Circular (1) / linear (0) flag and read depth relative to the chromosome of
+ * each length-filtered contig, from Flye's assembly_info.txt (`circ.`, `cov.`).
+ * IDs are renamed as in the length filter.
  */
 process FLYE_CIRCULARITY {
     tag "${meta.id}"
@@ -14,6 +15,7 @@ process FLYE_CIRCULARITY {
 
     output:
     tuple val(meta), path("${meta.id}.circular.tsv"), emit: circular
+    tuple val(meta), path("${meta.id}.coverage.tsv"), emit: coverage
     path "versions.yml"                             , emit: versions
 
     script:
@@ -32,7 +34,7 @@ process FLYE_CIRCULARITY {
 
     stub:
     """
-    touch ${meta.id}.circular.tsv
+    touch ${meta.id}.circular.tsv ${meta.id}.coverage.tsv
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         python: stub

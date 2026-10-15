@@ -1,0 +1,5 @@
+# Sequences excluded after manual curation in the publication (one ID per line).
+# contig_8_TG153: 14.3 kb circular, ParA only, MOB-typer MOBP oriT, nearest neighbour
+# NC_019053 (E. coli, removed from NCBI). Read coverage far below the host replicons
+# suggested contamination, plasmid loss or a mixed culture.
+contig_8_TG153

@@ -15,6 +15,9 @@ include { FLYE_CIRCULARITY      } from './modules/local/flye_circularity'
 include { MOBMESS_SYSTEMS       } from './modules/local/mobmess_systems'
 include { MOBMESS_FILTER_CLUSTERS } from './modules/local/mobmess_filter_clusters'
 include { MOBMESS_NETWORK       } from './modules/local/mobmess_network'
+include { BAKTA                 } from './modules/local/bakta'
+include { MOB_TYPER             } from './modules/local/mob_typer'
+include { PLASMID_FEATURES      } from './modules/local/plasmid_features'
 
 workflow {
 
@@ -26,6 +29,9 @@ workflow {
     }
     if (!params.plsdb_fasta || !params.plsdb_nuccore || !params.plsdb_typing) {
         error "Please provide the PLSDB files --plsdb_fasta, --plsdb_nuccore (nuccore.csv) and --plsdb_typing (typing.csv)"
+    }
+    if (!params.bakta_db || !params.mobsuite_db) {
+        error "Please provide the Bakta database (--bakta_db) and MOB-suite database (--mobsuite_db)"
     }
     if (params.plsdb_mash && !params.plsdb_sketch) {
         error "--plsdb_mash requires the PLSDB Mash sketch (--plsdb_sketch)"
@@ -163,5 +169,31 @@ workflow {
         GENOMAD_ENDTOEND.out.plasmid_summary.map { _meta, tsv -> tsv }.collect()
     )
 
-    // MOBMESS_FILTER_CLUSTERS.out.fasta feeds the next step of the pipeline
+    // ---------------------------------------------------------------------
+    // Step 6: plasmid markers on sequences that passed the MobMess filter
+    //   Bakta (rep/partition proteins), geNomad (MOB relaxase), MOB-typer (report)
+    // ---------------------------------------------------------------------
+    BAKTA (
+        MOBMESS_FILTER_CLUSTERS.out.fasta,
+        file(params.bakta_db, checkIfExists: true)
+    )
+
+    MOB_TYPER (
+        MOBMESS_FILTER_CLUSTERS.out.fasta,
+        file(params.mobsuite_db, checkIfExists: true)
+    )
+
+    PLASMID_FEATURES (
+        MOBMESS_FILTER_CLUSTERS.out.fasta,
+        MOBMESS_FILTER_CLUSTERS.out.clusters,
+        BAKTA.out.tsv,
+        MOB_TYPER.out.mob_type,
+        GENOMAD_ENDTOEND.out.plasmid_summary.map { _meta, tsv -> tsv }.collect(),
+        params.feature_exclude ? file(params.feature_exclude, checkIfExists: true) : [],
+        FLYE_CIRCULARITY.out.coverage.map { _meta, tsv -> tsv }.collect(),
+        params.flag_max_len,
+        params.flag_min_rel_cov
+    )
+
+    // PLASMID_FEATURES.out.fasta (final accessory plasmids) feeds the next step of the pipeline
 }

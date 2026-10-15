@@ -33,6 +33,7 @@ A CSV samplesheet with one Flye assembly per sample (see `assets/samplesheet_exa
 nextflow run accessory_plasmids -profile conda \
     --input samplesheet.csv --genomad_db /path/to/genomad_db \
     --plsdb_fasta plsdb.fasta --plsdb_nuccore nuccore.csv --plsdb_typing typing.csv \
+    --bakta_db /path/to/bakta_db/db --mobsuite_db /path/to/mob_suite/databases \
     --outdir results
 ```
 
@@ -131,6 +132,7 @@ so it is discarded.
 
 Output: `results/04_mobmess/`
 - `<sample>.circular.tsv`: circularity of each sample's filtered contigs
+- `<sample>.coverage.tsv`: Flye read depth of each filtered contig, and relative to the chromosome
 - `mobmess_input.fasta`, `mobmess_input.circular.tsv`: pooled MobMess input
 - `mobmess_clusters.txt`, `mobmess_systems.txt`, `mobmess_contigs.txt`, `mobmess_ani*.txt`, `*_graph.*`: MobMess output
 - `mobmess.filtered_clusters.tsv`: clusters that passed, with `length` and `source` (`sample`/`plsdb`)
@@ -158,6 +160,37 @@ Output: `results/05_network/`
 - `mobmess_network.graphml`: annotated graph, e.g. for Gephi or Cytoscape
 - `mobmess_network.nodes.tsv`: node attribute table
 
+### 6. Plasmid markers (`bakta`, `mob_typer`, geNomad)
+
+Sequences that passed the MobMess filter (Step 4) are annotated in one [Bakta](https://doi.org/10.1099/mgen.0.000685)
+run (`--keep-contig-headers`) and typed with [MOB-typer](https://doi.org/10.1099/mgen.0.000206) (`--multi`).
+A sequence is kept as an accessory plasmid when:
+
+1. Bakta annotates a **replication or partition protein**: product matching, case-insensitive,
+   `(?:^(?:(?:plasmid[\s/_-]*)?replication)|partition|para\s|parb\s)` (e.g. RepA/B/C, ParA, ParB); or
+2. geNomad (Step 2) reports a **MOB relaxase** among its conjugation genes. This rescues plasmids without an
+   annotated replication protein, such as a MOBV plasmid made mostly of hypothetical proteins.
+   PLSDB plasmids are not run through geNomad, so only rule 1 applies to them.
+
+Sequences listed in `--feature_exclude` (one ID per line, `#` comments allowed) are removed after manual
+curation. `assets/feature_exclude_publication.txt` holds the exclusion used in the publication.
+MOB-typer results are reported but are not used to decide.
+
+**Review flag.** Small plasmids are usually high-copy. A kept sample plasmid shorter than `--flag_max_len`
+(default 50 kb) whose Flye read depth is below `--flag_min_rel_cov` (default 0.5) times the depth of its
+chromosome (largest contig of the assembly) gets `review_flag = low_coverage_small`. The flag does not
+remove anything: low depth can mean contamination, plasmid loss or a mixed culture, so check flagged
+plasmids and add them to `--feature_exclude` if needed. In the publication data, contig_8_TG153 (14.3 kb,
+0.28x) was excluded this way, and contig_5_TG24 (44 kb, ParB, 0.35x) is flagged but was kept.
+
+Output: `results/06_plasmid_features/`
+- `plasmid_features.features.tsv`: one row per sequence with its markers, Flye `depth` and `rel_coverage`,
+  `keep` (1/0), `reason` (`rep_partition`, `genomad_mob`, `excluded`, `no_marker`) and `review_flag`
+- `plasmid_features.rep_proteins.tsv`: Bakta features matching the replication/partition pattern
+- `plasmid_features.fasta`, `plasmid_features.ids.txt`: accessory plasmids kept
+- `bakta/`: Bakta annotation (`.tsv`, `.gff3`, `.gbff`, `.faa`, ...)
+- `mob_typer/`: MOB-typer reports
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -176,6 +209,11 @@ Output: `results/05_network/`
 | `--mash_max_dist`     | `0.1`     | `mash dist -d`                                 |
 | `--mash_max_pvalue`   | `0.1`     | `mash dist -v`                                 |
 | `--mobmess_max_len`   | `1000000` | MobMess clusters are kept only if all members are shorter (bp) |
+| `--bakta_db`          | required  | Bakta database directory (`bakta_db download --type full`) |
+| `--mobsuite_db`       | required  | MOB-suite database directory (`mob_init -d <dir>`) |
+| `--feature_exclude`   | -         | IDs to exclude after manual curation          |
+| `--flag_max_len`      | `50000`   | review flag: plasmids shorter than this (bp)  |
+| `--flag_min_rel_cov`  | `0.5`     | review flag: depth below this × chromosome depth |
 
 ## Software
 
@@ -185,5 +223,6 @@ Output: `results/05_network/`
 - Mash 2.3, Python 3.12
 - MobMess (commit `97c0cfc`) and PlasX (commit `5c9acfd`), installed from GitHub; MUMmer 4.0.1
 - networkx 3.5, ipysigma 0.24.6
+- Bakta 1.12.0 (database v6.0, full) with AMRFinderPlus 4.2.7; MOB-suite 3.1.9
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2
