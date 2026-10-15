@@ -8,6 +8,9 @@
 
 include { SEQKIT_FILTER_CONTIGS } from './modules/local/seqkit_filter_contigs'
 include { GENOMAD_ENDTOEND      } from './modules/local/genomad_endtoend'
+include { MASH_DIST_PLSDB       } from './modules/local/mash_dist_plsdb'
+include { PLSDB_SELECT          } from './modules/local/plsdb_select'
+include { PLSDB_EXTRACT         } from './modules/local/plsdb_extract'
 
 workflow {
 
@@ -16,6 +19,12 @@ workflow {
     }
     if (!params.genomad_db) {
         error "Please provide the geNomad database directory with --genomad_db"
+    }
+    if (!params.plsdb_fasta || !params.plsdb_nuccore || !params.plsdb_typing) {
+        error "Please provide the PLSDB files --plsdb_fasta, --plsdb_nuccore (nuccore.csv) and --plsdb_typing (typing.csv)"
+    }
+    if (params.plsdb_mash && !params.plsdb_sketch) {
+        error "--plsdb_mash requires the PLSDB Mash sketch (--plsdb_sketch)"
     }
 
     // ---------------------------------------------------------------------
@@ -75,4 +84,35 @@ workflow {
 
     // geNomad is annotation only: ch_small_contigs (all filtered contigs) feeds
     // the next step; GENOMAD_ENDTOEND.out.plasmid_summary is joined later as annotation
+
+    // ---------------------------------------------------------------------
+    // Step 3: related PLSDB plasmids for de-replication
+    //   metadata rule (always) + mash hits to the filtered contigs (optional)
+    // ---------------------------------------------------------------------
+    if (params.plsdb_mash) {
+        MASH_DIST_PLSDB (
+            ch_small_contigs,
+            file(params.plsdb_sketch, checkIfExists: true),
+            params.mash_max_dist,
+            params.mash_max_pvalue
+        )
+        ch_mash_hits = MASH_DIST_PLSDB.out.dist.map { _meta, tsv -> tsv }.collect()
+    } else {
+        ch_mash_hits = channel.value([])
+    }
+
+    PLSDB_SELECT (
+        file(params.plsdb_nuccore, checkIfExists: true),
+        file(params.plsdb_typing, checkIfExists: true),
+        params.plsdb_keyword,
+        ch_mash_hits
+    )
+
+    PLSDB_EXTRACT (
+        file(params.plsdb_fasta, checkIfExists: true),
+        PLSDB_SELECT.out.ids
+    )
+
+    // PLSDB_EXTRACT.out.fasta + PLSDB_SELECT.out.circular are pooled with the
+    // sample contigs for de-replication in the next step
 }
