@@ -28,7 +28,8 @@ A CSV samplesheet with one assembly per sample (see `assets/samplesheet_example.
 ## Usage
 
 ```bash
-nextflow run accessory_plasmids -profile singularity --input samplesheet.csv --outdir results
+nextflow run accessory_plasmids -profile singularity \
+    --input samplesheet.csv --genomad_db /path/to/genomad_db --outdir results
 ```
 
 Profiles: `singularity`, `apptainer`, `docker` and `conda` choose how software is provided, and `slurm` submits jobs to SLURM.
@@ -50,6 +51,32 @@ Output: `results/01_contig_length_filter/`
 - `<sample>.max_len_filtered.fasta`: retained contigs
 - `<sample>.contig_lengths.tsv`: retained contig IDs and lengths
 
+### 2. Plasmid classification (`geNomad end-to-end`)
+
+Classifies each retained contig as plasmid, virus or chromosome with
+[geNomad](https://github.com/apcamargo/genomad) 1.12.0, using default thresholds
+(no `--relaxed`/`--conservative`). Score calibration is off (geNomad default), so
+per-sample results are identical to running all contigs pooled.
+
+The geNomad database is required (`--genomad_db`). The publication used **database v1.9**.
+Download it once, outside the pipeline:
+
+```bash
+genomad download-database /path/to/
+```
+
+`download-database` always fetches the latest release. For reproducibility, check
+`genomad_db/version.txt`; it is also recorded in `versions.yml`.
+
+At this step the geNomad results are reported only; no contig is removed.
+
+Output: `results/02_genomad/<sample>/`
+- `<sample>_summary/<sample>_plasmid_summary.tsv`: contigs classified as plasmid (score, topology, hallmarks, conjugation and AMR genes)
+- `<sample>_summary/<sample>_plasmid.fna`, `_plasmid_genes.tsv`, `_plasmid_proteins.faa`: plasmid sequences, genes and proteins
+- `<sample>_summary/<sample>_virus_summary.tsv`, `_virus.fna`: contigs classified as virus
+- `<sample>_aggregated_classification/<sample>_aggregated_classification.tsv`: chromosome/plasmid/virus scores for every contig
+- `*.log`: geNomad logs
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -58,8 +85,10 @@ Output: `results/01_contig_length_filter/`
 | `--outdir`            | `results` | output directory                               |
 | `--max_contig_len`    | `1000000` | maximum contig length (bp) to keep             |
 | `--add_sample_suffix` | `true`    | append `_<sample>` to contig IDs               |
+| `--genomad_db`        | required  | geNomad database directory                     |
 
 ## Software
 
 - Nextflow ≥ 24.04
 - seqkit 2.13.0
+- geNomad 1.12.0 (database v1.9)

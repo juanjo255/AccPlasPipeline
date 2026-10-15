@@ -7,11 +7,15 @@
  */
 
 include { SEQKIT_FILTER_CONTIGS } from './modules/local/seqkit_filter_contigs'
+include { GENOMAD_ENDTOEND      } from './modules/local/genomad_endtoend'
 
 workflow {
 
     if (!params.input) {
         error "Please provide a samplesheet with --input (columns: sample,assembly)"
+    }
+    if (!params.genomad_db) {
+        error "Please provide the geNomad database directory with --genomad_db"
     }
 
     // ---------------------------------------------------------------------
@@ -58,5 +62,17 @@ workflow {
             return true
         }
 
-    // ch_small_contigs feeds the next step of the pipeline
+    // ---------------------------------------------------------------------
+    // Step 2: plasmid / virus / chromosome classification with geNomad
+    // ---------------------------------------------------------------------
+    // Database is passed as a staged input so containers can see it
+    ch_genomad_db = file(params.genomad_db, checkIfExists: true)
+
+    GENOMAD_ENDTOEND (
+        ch_small_contigs,
+        ch_genomad_db
+    )
+
+    // geNomad is annotation only: ch_small_contigs (all filtered contigs) feeds
+    // the next step; GENOMAD_ENDTOEND.out.plasmid_summary is joined later as annotation
 }

@@ -1,0 +1,6 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::genomad=1.12.0
