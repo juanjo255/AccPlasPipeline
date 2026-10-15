@@ -136,6 +136,28 @@ Output: `results/04_mobmess/`
 - `mobmess.filtered_clusters.tsv`: clusters that passed, with `length` and `source` (`sample`/`plsdb`)
 - `mobmess.filtered.fasta`, `mobmess.filtered_ids.txt`: sequences that passed
 
+### 5. MobMess containment network (`networkx`, `ipysigma`)
+
+Interactive plot of the MobMess containment network with **all** clusters, before filtering
+(publication Fig. S2A). Nodes are sequences, edges are containment relationships. Nodes are coloured
+by MobMess cluster type (backbone, compound, maximal, fragment) and sized by length. Hovering over a
+node shows its attributes:
+
+| attribute       | description                                                       |
+|-----------------|-------------------------------------------------------------------|
+| `length`, `gc`  | sequence length (bp) and GC % (G+C over length)                    |
+| `source`        | `sample` or `plsdb`                                               |
+| `genomad`       | `plasmid` / `not_plasmid` (Step 2); `not_tested` for PLSDB plasmids |
+| `passed_filter` | `1` if the sequence passed the MobMess cluster filter (Step 4)    |
+
+The layout (ForceAtlas2) is computed in the browser when the HTML file is opened, so it can differ slightly
+between openings.
+
+Output: `results/05_network/`
+- `mobmess_network.html`: interactive network (open in a web browser)
+- `mobmess_network.graphml`: annotated graph, e.g. for Gephi or Cytoscape
+- `mobmess_network.nodes.tsv`: node attribute table
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -162,5 +184,6 @@ Output: `results/04_mobmess/`
 - geNomad 1.12.0 (database v1.9)
 - Mash 2.3, Python 3.12
 - MobMess (commit `97c0cfc`) and PlasX (commit `5c9acfd`), installed from GitHub; MUMmer 4.0.1
+- networkx 3.5, ipysigma 0.24.6
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

@@ -14,6 +14,7 @@ include { PLSDB_EXTRACT         } from './modules/local/plsdb_extract'
 include { FLYE_CIRCULARITY      } from './modules/local/flye_circularity'
 include { MOBMESS_SYSTEMS       } from './modules/local/mobmess_systems'
 include { MOBMESS_FILTER_CLUSTERS } from './modules/local/mobmess_filter_clusters'
+include { MOBMESS_NETWORK       } from './modules/local/mobmess_network'
 
 workflow {
 
@@ -149,6 +150,17 @@ workflow {
         MOBMESS_SYSTEMS.out.fasta,
         PLSDB_SELECT.out.ids,
         params.mobmess_max_len
+    )
+
+    // ---------------------------------------------------------------------
+    // Step 5: MobMess containment network plot (all clusters, before filtering)
+    // ---------------------------------------------------------------------
+    MOBMESS_NETWORK (
+        MOBMESS_SYSTEMS.out.contig_graph,
+        MOBMESS_SYSTEMS.out.fasta,
+        PLSDB_SELECT.out.ids,
+        MOBMESS_FILTER_CLUSTERS.out.ids,
+        GENOMAD_ENDTOEND.out.plasmid_summary.map { _meta, tsv -> tsv }.collect()
     )
 
     // MOBMESS_FILTER_CLUSTERS.out.fasta feeds the next step of the pipeline

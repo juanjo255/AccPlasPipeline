@@ -1,0 +1,11 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - conda-forge::python=3.13
+  - conda-forge::networkx=3.5
+  - conda-forge::pip
+  - pip:
+      - ipywidgets==8.1.8
+      - ipysigma==0.24.6
