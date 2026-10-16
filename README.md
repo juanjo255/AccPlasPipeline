@@ -4,6 +4,24 @@ Nextflow pipeline to detect accessory plasmids in *Sinorhizobium meliloti* genom
 
 This is result of our work done annotating and describing novel *Sinorhizobium meliloti* accessory plasmids.
 
+## Contents
+
+- [0. Genome assembly (upstream, not part of this pipeline)](#0-genome-assembly-upstream-not-part-of-this-pipeline)
+- [Input](#input)
+- [Usage](#usage)
+- [Steps](#steps)
+  - [1. Contig length filter (`seqkit seq`)](#1-contig-length-filter-seqkit-seq)
+  - [2. Plasmid classification (`geNomad end-to-end`)](#2-plasmid-classification-genomad-end-to-end)
+  - [3. Related PLSDB plasmids (`select_plsdb.py`, optional `mash dist`, `seqkit grep`)](#3-related-plsdb-plasmids-select_plsdbpy-optional-mash-dist-seqkit-grep)
+  - [4. De-replication with MobMess (`mobmess systems`)](#4-de-replication-with-mobmess-mobmess-systems)
+  - [5. MobMess containment network (`networkx`, `ipysigma`)](#5-mobmess-containment-network-networkx-ipysigma)
+  - [6. Plasmid markers (`bakta`, `mob_typer`, geNomad)](#6-plasmid-markers-bakta-mob_typer-genomad)
+  - [7. RepABC operons and replicon groups (`repabc_operons.py`, `mmseqs easy-cluster`)](#7-repabc-operons-and-replicon-groups-repabc_operonspy-mmseqs-easy-cluster)
+  - [8. MobMess on the final accessory plasmids](#8-mobmess-on-the-final-accessory-plasmids)
+  - [9. Summary table and figures (`matplotlib`, `seaborn`)](#9-summary-table-and-figures-matplotlib-seaborn)
+- [Parameters](#parameters)
+- [Software](#software)
+
 ## 0. Genome assembly (upstream, not part of this pipeline)
 
 The pipeline starts from genome assemblies. We recommend assembling with
