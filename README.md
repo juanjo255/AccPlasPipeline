@@ -1,6 +1,8 @@
 # Accessory Plasmids Identifier
 
-Nextflow pipeline to detect accessory plasmids in *Sinorhizobium meliloti* genome assemblies.
+This represent the commands used during my work: "Sinorhizobium meliloti Accessory Plasmidome: Characterization of Diversity, Gene Content, and Organization of Novel Large Plasmids"
+
+With the help of Claude, tools used were organized into a Nextflow pipeline to detect accessory plasmids in *Sinorhizobium meliloti* genome assemblies.
 
 This is result of our work done annotating and describing novel *Sinorhizobium meliloti* accessory plasmids.
 
