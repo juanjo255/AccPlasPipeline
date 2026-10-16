@@ -237,6 +237,8 @@ One table and four figures (PNG and SVG) of the accessory plasmids. Plasmids are
 | `rep_proteins_heatmap` | replication/partition proteins per plasmid; rows clustered (Hamming distance, average linkage) and coloured by dataset |
 | `replicon_groups_by_dataset` | plasmids per replicon group, stacked by dataset |
 | `replicon_multiplicity_length` | length of plasmids with single vs duplicated RepA/B/C, with a Mann-Whitney U test |
+| `replicon_cooccurrence_upset` | UpSet plot of replicon groups carried together by the same strain (sample plasmids with a replicon group) |
+| `plasmids_per_strain` | strains by number of accessory plasmids (strains with at least one; all accessory plasmids) |
 
 Percentages in `features_stackbar` are per plasmid (all accessory plasmids), whereas the publication notebook
 counted one row per rep gene of plasmids carrying RepA.
@@ -280,6 +282,6 @@ Output: `results/09_summary/`
 - networkx 3.5, ipysigma 0.24.6
 - Bakta 1.12.0 (database v6.0, full) with AMRFinderPlus 4.2.7; MOB-suite 3.1.9
 - MMseqs2 18.8cc5c
-- matplotlib 3.10.5, seaborn 0.13.2, pandas 2.3.1, SciPy 1.16.1
+- matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

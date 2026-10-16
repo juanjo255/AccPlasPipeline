@@ -37,6 +37,7 @@ process PLOT_PLASMID_FEATURES {
         python: \$(python3 --version | sed 's/Python //')
         matplotlib: \$(python3 -c 'import matplotlib; print(matplotlib.__version__)')
         seaborn: \$(python3 -c 'import seaborn; print(seaborn.__version__)')
+        upsetplot: \$(python3 -c 'import upsetplot; print(upsetplot.__version__)')
     END_VERSIONS
     """
 

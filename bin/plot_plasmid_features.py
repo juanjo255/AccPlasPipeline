@@ -10,6 +10,10 @@ Figures (PNG and SVG), adapted from the publication notebooks:
   replicon_groups_by_dataset  plasmids per replicon group, stacked by dataset
   replicon_multiplicity_length  length of plasmids with single vs duplicated
                               repA/B/C (Mann-Whitney U test)
+  replicon_cooccurrence_upset UpSet plot of replicon groups carried together by
+                              the same strain (sample plasmids with a replicon group)
+  plasmids_per_strain         strains by number of accessory plasmids
+                              (strains with at least one)
 
 Plasmids are coloured by the samplesheet `dataset` column; PLSDB plasmids are 'Database'.
 
@@ -30,6 +34,7 @@ import seaborn as sns
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from matplotlib.patches import Patch
 from scipy.stats import mannwhitneyu
+import upsetplot
 
 DATABASE = "Database"
 MISSING_LABEL, OTHER_LABEL = "Missing", "Other"
@@ -207,6 +212,44 @@ def replicon_multiplicity_length(df, counts):
     save(fig, "replicon_multiplicity_length")
 
 
+def replicon_cooccurrence_upset(df):
+    typed = df[(df["source"] == "sample") & (df["replicon_group"] != "-")]
+    if typed["sample"].nunique() < 2:
+        print("Fewer than two strains with replicon groups: UpSet plot skipped", file=sys.stderr)
+        return
+    # Each strain is one element; its memberships are the replicon groups it carries
+    memberships = typed.groupby("sample")["replicon_group"].apply(lambda g: sorted(set(g)))
+    data = upsetplot.from_memberships(memberships.tolist())
+    fig = plt.figure(figsize=(12, 6))
+    axes = upsetplot.UpSet(data, subset_size="count", show_counts="{:,}", sort_by="cardinality",
+                           facecolor="#4daf4a", element_size=None).plot(fig=fig)
+    axes["intersections"].set_title("Replicon group co-occurrence across strains")
+    axes["intersections"].set_ylabel("Strains")
+    axes["totals"].set_xlabel("Strains")
+    for ax in axes.values():
+        if ax is not None:
+            ax.grid(False)
+    save(fig, "replicon_cooccurrence_upset")
+
+
+def plasmids_per_strain(df):
+    per_strain = df[df["source"] == "sample"].groupby("sample").size()
+    if per_strain.empty:
+        return
+    counts = per_strain.value_counts().sort_index()
+    sns.set_theme(style="ticks")
+    fig, ax = plt.subplots(figsize=(6, 3))
+    bars = ax.barh([str(k) for k in counts.index], counts.values, color="#c44e52")
+    ax.bar_label(bars, padding=3)
+    ax.invert_yaxis()
+    ax.set_title(f"Accessory plasmids per strain ({len(per_strain)} strains)")
+    ax.set_xlabel("Number of strains")
+    ax.set_ylabel("Number of plasmids")
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.tight_layout()
+    save(fig, "plasmids_per_strain")
+
+
 def main():
     args = parse_args()
     df = build_table(args)
@@ -215,6 +258,8 @@ def main():
     counts = rep_proteins_heatmap(df, args.rep_proteins, palette)
     replicon_groups_by_dataset(df, palette)
     replicon_multiplicity_length(df, counts)
+    replicon_cooccurrence_upset(df)
+    plasmids_per_strain(df)
     print(f"{len(df)} plasmids plotted; datasets: "
           + ", ".join(f"{d} ({n})" for d, n in df["dataset"].value_counts().items()))
 
