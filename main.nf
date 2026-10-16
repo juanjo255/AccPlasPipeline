@@ -23,6 +23,14 @@ include { REPABC_OPERONS        } from './modules/local/repabc_operons'
 include { REPLICON_GROUPS       } from './modules/local/replicon_groups'
 include { MOBMESS_SYSTEMS as MOBMESS_SYSTEMS_FINAL } from './modules/local/mobmess_systems'
 include { PLOT_PLASMID_FEATURES } from './modules/local/plot_plasmid_features'
+include { BAKTA_PLASMID         } from './modules/local/bakta_plasmid'
+include { MERGE_ANNOTATIONS     } from './modules/local/merge_annotations'
+include { TASMANIA              } from './modules/local/tasmania'
+include { DEFENSEFINDER         } from './modules/local/defensefinder'
+include { ANTISMASH             } from './modules/local/antismash'
+include { DBCAN                 } from './modules/local/dbcan'
+include { SIGNALP               } from './modules/local/signalp'
+include { ANNOTATION_SUMMARY    } from './modules/local/annotation_summary'
 
 workflow {
 
@@ -37,6 +45,15 @@ workflow {
     }
     if (!params.bakta_db || !params.mobsuite_db) {
         error "Please provide the Bakta database (--bakta_db) and MOB-suite database (--mobsuite_db)"
+    }
+    if (!params.skip_annotation) {
+        def missing = ['tasmania_hmms', 'defensefinder_models', 'antismash_db', 'dbcan_db'].findAll { !params[it] }
+        if (missing) {
+            error "Step 10 (functional annotation) needs: ${missing.collect { '--' + it }.join(', ')} (or use --skip_annotation)"
+        }
+        if (params.signalp_module && !params.signalp_model_dir) {
+            error "--signalp_module requires --signalp_model_dir"
+        }
     }
     if (params.plsdb_mash && !params.plsdb_sketch) {
         error "--plsdb_mash requires the PLSDB Mash sketch (--plsdb_sketch)"
@@ -247,4 +264,69 @@ workflow {
         REPLICON_GROUPS.out.groups,
         ch_contig_dataset
     )
+
+    // ---------------------------------------------------------------------
+    // Step 10: functional annotation of the accessory plasmids
+    //   Bakta per plasmid, then TA (TASmania), defense (DefenseFinder),
+    //   BGC (antiSMASH), CAZymes (dbCAN, optional SignalP)
+    // ---------------------------------------------------------------------
+    if (!params.skip_annotation) {
+        ch_plasmid_fasta = PLASMID_FEATURES.out.fasta
+            .splitFasta(by: 1, file: true)
+            .map { f -> [ [id: f.readLines()[0].substring(1).trim().split(/\s+/)[0]], f ] }
+
+        BAKTA_PLASMID (
+            ch_plasmid_fasta,
+            file(params.bakta_db, checkIfExists: true)
+        )
+
+        MERGE_ANNOTATIONS (
+            BAKTA_PLASMID.out.tsv.map { _meta, f -> f }.collect(),
+            BAKTA_PLASMID.out.faa.map { _meta, f -> f }.collect(),
+            BAKTA_PLASMID.out.gbff.map { _meta, f -> f }.collect()
+        )
+
+        // TASer-like: own Prodigal genes on the plasmid sequences, linked to Bakta genes
+        TASMANIA (
+            PLASMID_FEATURES.out.fasta,
+            MERGE_ANNOTATIONS.out.tsv,
+            file(params.tasmania_hmms, checkIfExists: true),
+            params.ta_evalue,
+            params.ta_report_evalue
+        )
+
+        DEFENSEFINDER (
+            BAKTA_PLASMID.out.faa,
+            file(params.defensefinder_models, checkIfExists: true)
+        )
+
+        ANTISMASH (
+            MERGE_ANNOTATIONS.out.gbff,
+            file(params.antismash_db, checkIfExists: true)
+        )
+
+        DBCAN (
+            MERGE_ANNOTATIONS.out.faa,
+            file(params.dbcan_db, checkIfExists: true),
+            params.dbcan_methods,
+            params.cazyme_min_tools
+        )
+
+        // SignalP is licensed: only run when its environment module is given
+        if (params.signalp_module) {
+            SIGNALP ( DBCAN.out.faa, params.signalp_model_dir )
+            ch_signalp = SIGNALP.out.predictions
+        } else {
+            ch_signalp = channel.value([])
+        }
+
+        ANNOTATION_SUMMARY (
+            PLOT_PLASMID_FEATURES.out.summary,
+            TASMANIA.out.ta,
+            DEFENSEFINDER.out.systems.map { _meta, f -> f }.collect(),
+            ANTISMASH.out.outdir,
+            DBCAN.out.cazymes,
+            ch_signalp
+        )
+    }
 }

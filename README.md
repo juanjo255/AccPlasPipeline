@@ -19,6 +19,7 @@ This is result of our work done annotating and describing novel *Sinorhizobium m
   - [7. RepABC operons and replicon groups (`repabc_operons.py`, `mmseqs easy-cluster`)](#7-repabc-operons-and-replicon-groups-repabc_operonspy-mmseqs-easy-cluster)
   - [8. MobMess on the final accessory plasmids](#8-mobmess-on-the-final-accessory-plasmids)
   - [9. Summary table and figures (`matplotlib`, `seaborn`)](#9-summary-table-and-figures-matplotlib-seaborn)
+  - [10. Functional annotation (`bakta`, TASmania, `defense-finder`, `antismash`, `run_dbcan`, SignalP)](#10-functional-annotation-bakta-tasmania-defense-finder-antismash-run_dbcan-signalp)
 - [Parameters](#parameters)
 - [Software](#software)
 
@@ -53,6 +54,8 @@ nextflow run accessory_plasmids -profile conda \
     --input samplesheet.csv --genomad_db /path/to/genomad_db \
     --plsdb_fasta plsdb.fasta --plsdb_nuccore nuccore.csv --plsdb_typing typing.csv \
     --bakta_db /path/to/bakta_db/db --mobsuite_db /path/to/mob_suite/databases \
+    --tasmania_hmms /path/to/TASmania_HMMs --defensefinder_models ~/.macsyfinder/models \
+    --antismash_db /path/to/antismash/databases --dbcan_db /path/to/dbcan_db \
     --outdir results
 ```
 
@@ -263,6 +266,71 @@ counted one row per rep gene of plasmids carrying RepA.
 
 Output: `results/09_summary/`
 
+### 10. Functional annotation (`bakta`, TASmania, `defense-finder`, `antismash`, `run_dbcan`, SignalP)
+
+Each accessory plasmid (Step 6) is annotated **on its own** with Bakta, as in the publication, so a plasmid's
+genes do not depend on which other plasmids are in the run. The per-plasmid annotations are merged
+(proteins renamed `<locus>__<plasmid>`) and searched for:
+
+| feature | tool | settings |
+|---------|------|----------|
+| Toxin-antitoxin genes | [TASmania](https://doi.org/10.1371/journal.pcbi.1006946) HMMs with pyhmmer `hmmsearch`, scored like TASer | see below |
+| Defense / anti-defense systems | [DefenseFinder](https://doi.org/10.1038/s41467-022-30269-9) 3.0.0 | per plasmid; `--db-type ordered_replicon --coverage 0.4 --antidefensefinder` |
+| Biosynthetic gene clusters | [antiSMASH](https://doi.org/10.1093/nar/gkaf334) 8.0.4 | all plasmids in one run; `--cb-general --cc-mibig --taxon bacteria`; genes from Bakta |
+| CAZymes | [run_dbcan](https://doi.org/10.1093/nar/gkad328) 5.2.9 | `--methods` `--dbcan_methods`; kept if found by ≥ `--cazyme_min_tools` (2) tools |
+| Signal peptides of CAZymes (optional) | SignalP 6.0 (fast, organism other) | only with `--signalp_module` and `--signalp_model_dir` |
+
+**Toxin-antitoxin (TASer-like).** The publication used the [TASer web server](https://shiny.bioinformatics.unibe.ch/apps/tasmania/),
+which also reports whether each gene is a toxin or antitoxin and its pseudo-operon structure (e.g. `TA`, `xTA`,
+`Ax`). TASer can only be run on its web page, so the pipeline reproduces its method locally. The rules were
+inferred from the publication's TASer reports:
+- genes are predicted with Prodigal (pyrodigal, single mode) **trained on all plasmids of the run**, as TASer
+  does on a submission (this reproduces 100% of TASer's gene coordinates for the same submission). TASer
+  calls its own genes, and Bakta misses some small TA genes;
+- each protein is scored alone against the TASmania HMMs (E-values with Z = 1), so E-values do not depend on how
+  many plasmids are analysed;
+- each gene keeps its best HMM and is reported at E < `--ta_report_evalue` (0.01);
+- T (toxin) / A (antitoxin) comes from the TASmania HMM (`T.<id>` / `A.<id>`);
+- pseudo-operons are genes on the same strand with intergenic distance −100 to +100 nt; the structure lists them
+  in genomic order as T, A or x (no TA hit).
+
+Each TA gene is linked to the Bakta gene it overlaps (≥ 50% of both lengths) for its name and product. Counts
+(as in the publication notebook) use genes with E < `--ta_evalue` (1e-3) that are not RepA/B/C proteins.
+
+Agreement with the publication's TASer reports:
+
+| run | TASer genes found | same T/A and HMM | same operon structure |
+|-----|-------------------|------------------|-----------------------|
+| same submissions as TASer (6 batches of ~70 plasmids) | 3,493 / 3,494 | 100% | 94–99.6% |
+| all plasmids in one run (as the pipeline does) | 3,347 / 3,494 (95.8%) | 100% | 95.1% |
+
+Gene training depends on which plasmids are in the run, so a few gene calls change with the plasmid set. With
+less than 100 kb of plasmid sequence in total, Prodigal cannot be trained and metagenome mode is used instead.
+E-values are about 5% lower than TASer's (HMMER 3.4 vs 3.1). TASer also adds a `?` at the edge of some operons,
+mostly next to a contig end; its meaning is not documented and it is not reproduced.
+
+**dbCAN tools.** In the publication the CAZy DIAMOND search returned no output, so in practice both dbCAN-HMM
+and dbCAN-sub had to agree. The pipeline runs all three tools and stops if DIAMOND produces nothing. With the
+publication data, DIAMOND adds 10 CAZymes (759 instead of 749) and no new plasmid (339). Use
+`--dbcan_methods hmm,dbCANsub` to reproduce the published set exactly.
+
+**SignalP** is licensed and cannot be installed by conda. On a cluster with an environment module, run with e.g.
+`--signalp_module signalp/6.0-fast --signalp_model_dir /path/to/signalp-6-package/models/`.
+
+The whole step is skipped with `--skip_annotation`.
+
+Output: `results/10_annotation/`
+- `annotation_summary.tsv`: per plasmid, number of TA genes, complete TA pseudo-operons (toxin + antitoxin) and their
+  structures, defense systems (and types), BGC regions (and types), CAZymes (and families)
+- `tasmania.genes.faa` (Prodigal proteins), `tasmania.hits.csv` (all HMM hits), `tasmania.ta.tsv` (TA genes: T/A,
+  best HMM, E-value, operon ID and structure, overlapping Bakta gene/product, `count` = used in counts)
+- `defense_systems.tsv` (all plasmids), `defensefinder/<plasmid>_defense_finder_{systems,genes,hmmer}.tsv`
+- `bgc_regions.tsv` (region and product per plasmid), `antismash/` (full antiSMASH output)
+- `cazymes.tsv`, `cazymes_signalp.tsv`, `dbcan/` (run_dbcan output), `signalp/` (if run)
+- `plasmids.tsv`, `plasmids_proteins.faa`, `plasmids.gbff` (merged annotation), `bakta/<plasmid>/` (per plasmid)
+- Figures: `ta_heatmap_per_plasmid`, `ta_heatmap_per_cluster`, `ta_operon_structures`, `defense_heatmap_per_cluster`,
+  `bgc_types`, `cazyme_families`
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -289,6 +357,19 @@ Output: `results/09_summary/`
 | `--repabc_wrap_circular` | `false` | RepABC windows wrap around circular plasmids |
 | `--repa_references`   | `assets/Rh_repA_replicons.fasta` | reference RepA proteins (headers with `Rh<n>`) |
 | `--replicon_names`    | -         | sequence `<tab>` replicon group, to keep earlier names |
+| `--skip_annotation`   | `false`   | skip Step 10                                  |
+| `--tasmania_hmms`     | required* | directory of TASmania `*.hmm3` HMMs           |
+| `--ta_evalue`         | `1e-3`    | TA genes counted below this E-value (per protein, Z = 1) |
+| `--ta_report_evalue`  | `1e-2`    | TA genes reported and used for operon structures |
+| `--defensefinder_models` | required* | macsyfinder models directory with `defense-finder-models` |
+| `--antismash_db`      | required* | antiSMASH databases (`download-antismash-databases`) |
+| `--dbcan_db`          | required* | dbCAN database (`run_dbcan database`)         |
+| `--dbcan_methods`     | `diamond,hmm,dbCANsub` | dbCAN tools to run                |
+| `--cazyme_min_tools`  | `2`       | minimum dbCAN tools supporting a CAZyme       |
+| `--signalp_module`    | -         | environment module providing `signalp6` (optional) |
+| `--signalp_model_dir` | -         | SignalP 6 model directory                     |
+
+\* unless `--skip_annotation`.
 
 ## Software
 
@@ -301,5 +382,7 @@ Output: `results/09_summary/`
 - Bakta 1.12.0 (database v6.0, full) with AMRFinderPlus 4.2.7; MOB-suite 3.1.9
 - MMseqs2 18.8cc5c
 - matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
+- pyhmmer 0.12.0 and pyrodigal 3.7.1 (TASer-like TA search); DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
+  run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast (optional, licensed)
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2
