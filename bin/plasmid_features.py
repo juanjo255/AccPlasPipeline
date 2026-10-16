@@ -22,6 +22,7 @@ Outputs:
   <prefix>.rep_proteins.tsv  Bakta features matching the rep/partition regex
   <prefix>.ids.txt           kept sequence IDs
   <prefix>.fasta             kept sequences
+  <prefix>.circular.tsv      kept sequence <tab> 1/0 (circular), for MobMess
 """
 import argparse
 import csv
@@ -167,6 +168,8 @@ def main():
     keep_set = set(kept)
     with open(f"{args.prefix}.ids.txt", "w") as out:
         out.writelines(f"{s}\n" for s in kept)
+    with open(f"{args.prefix}.circular.tsv", "w") as out:
+        out.writelines(f"{s}\t{clusters[s]['circular']}\n" for s in kept)
     with open(args.fasta) as fh, open(f"{args.prefix}.fasta", "w") as out:
         write = False
         for line in fh:

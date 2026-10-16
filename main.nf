@@ -2,8 +2,9 @@
 /*
  * accessory_plasmids: detect accessory plasmids in Sinorhizobium meliloti assemblies.
  *
- * Input : samplesheet CSV with columns `sample,assembly,assembly_info` (one Flye
- *         assembly per row; assembly_info = Flye's assembly_info.txt).
+ * Input : samplesheet CSV with columns `sample,assembly,assembly_info` and optional
+ *         `dataset` (one Flye assembly per row; assembly_info = Flye's
+ *         assembly_info.txt; dataset = group used to colour plots).
  */
 
 include { SEQKIT_FILTER_CONTIGS } from './modules/local/seqkit_filter_contigs'
@@ -18,6 +19,10 @@ include { MOBMESS_NETWORK       } from './modules/local/mobmess_network'
 include { BAKTA                 } from './modules/local/bakta'
 include { MOB_TYPER             } from './modules/local/mob_typer'
 include { PLASMID_FEATURES      } from './modules/local/plasmid_features'
+include { REPABC_OPERONS        } from './modules/local/repabc_operons'
+include { REPLICON_GROUPS       } from './modules/local/replicon_groups'
+include { MOBMESS_SYSTEMS as MOBMESS_SYSTEMS_FINAL } from './modules/local/mobmess_systems'
+include { PLOT_PLASMID_FEATURES } from './modules/local/plot_plasmid_features'
 
 workflow {
 
@@ -50,7 +55,12 @@ workflow {
             if (row.sample =~ /\s/) {
                 error "Sample names must not contain whitespace: '${row.sample}'"
             }
-            [ [id: row.sample], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true) ]
+            // Optional dataset label (e.g. sequencing batch or collection) for plots; PLSDB is 'Database'
+            def dataset = row.dataset ?: 'Sample'
+            if (dataset == 'Database') {
+                error "Dataset name 'Database' is reserved for PLSDB plasmids (sample ${row.sample})"
+            }
+            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true) ]
         }
 
     ch_assemblies    = ch_samples.map { meta, assembly, _info -> [ meta, assembly ] }
@@ -73,6 +83,13 @@ workflow {
         params.max_contig_len,
         params.add_sample_suffix
     )
+
+    // Contig -> sample -> dataset table (plots colour plasmids by dataset)
+    ch_contig_dataset = SEQKIT_FILTER_CONTIGS.out.lengths
+        .flatMap { meta, tsv ->
+            tsv.readLines().findAll { it.trim() }.collect { line -> "${line.split('\t')[0]}\t${meta.id}\t${meta.dataset}" }
+        }
+        .collectFile(name: 'contig_datasets.tsv', newLine: true, sort: true, seed: 'contig\tsample\tdataset')
 
     // Genomes with no contig under the threshold yield an empty FASTA: report and drop them
     ch_small_contigs = SEQKIT_FILTER_CONTIGS.out.fasta
@@ -195,5 +212,39 @@ workflow {
         params.flag_min_rel_cov
     )
 
-    // PLASMID_FEATURES.out.fasta (final accessory plasmids) feeds the next step of the pipeline
+    // ---------------------------------------------------------------------
+    // Step 7: RepABC operons and replicon groups of the accessory plasmids
+    // ---------------------------------------------------------------------
+    REPABC_OPERONS (
+        BAKTA.out.tsv,
+        MOBMESS_FILTER_CLUSTERS.out.clusters,
+        PLASMID_FEATURES.out.ids
+    )
+
+    REPLICON_GROUPS (
+        REPABC_OPERONS.out.repa,
+        BAKTA.out.faa,
+        file(params.repa_references, checkIfExists: true),
+        params.replicon_names ? file(params.replicon_names, checkIfExists: true) : []
+    )
+
+    // ---------------------------------------------------------------------
+    // Step 8: MobMess again on the final accessory plasmids (cluster IDs change)
+    // ---------------------------------------------------------------------
+    MOBMESS_SYSTEMS_FINAL (
+        PLASMID_FEATURES.out.fasta,
+        PLASMID_FEATURES.out.circular
+    )
+
+    // ---------------------------------------------------------------------
+    // Step 9: summary table and figures, coloured by samplesheet dataset
+    // ---------------------------------------------------------------------
+    PLOT_PLASMID_FEATURES (
+        PLASMID_FEATURES.out.features,
+        PLASMID_FEATURES.out.rep_proteins,
+        MOB_TYPER.out.mob_type,
+        REPABC_OPERONS.out.summary,
+        REPLICON_GROUPS.out.groups,
+        ch_contig_dataset
+    )
 }

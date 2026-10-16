@@ -26,6 +26,7 @@ A CSV samplesheet with one Flye assembly per sample (see `assets/samplesheet_exa
 | `sample`        | unique sample name, without whitespace                   |
 | `assembly`      | path to the assembly FASTA (`.fasta`, `.fa`, `.fna`, `.gz` accepted) |
 | `assembly_info` | path to Flye's `assembly_info.txt` for that assembly     |
+| `dataset`       | optional group used to colour the figures (e.g. `Penn State`, `In-house`); default `Sample`. `Database` is reserved for PLSDB plasmids |
 
 ## Usage
 
@@ -190,6 +191,57 @@ Output: `results/06_plasmid_features/`
 - `plasmid_features.fasta`, `plasmid_features.ids.txt`: accessory plasmids kept
 - `bakta/`: Bakta annotation (`.tsv`, `.gff3`, `.gbff`, `.faa`, ...)
 - `mob_typer/`: MOB-typer reports
+- `plasmid_features.circular.tsv`: circularity of the kept plasmids (input of Step 8)
+
+### 7. RepABC operons and replicon groups (`repabc_operons.py`, `mmseqs easy-cluster`)
+
+**RepABC operons.** Among the Bakta replication/partition features of the kept plasmids, those whose product
+matches `[rR]ep[ABC]` are scanned from each *repA*: 4 kb downstream (+ strand) or upstream (− strand). A window
+holding *repA*, *repB* and *repC* is a complete operon. With the publication data this gives 403 plasmids with
+*repA* and 394 with a complete operon. `--repabc_wrap_circular true` also lets windows wrap around the origin
+of circular plasmids (398 complete operons; the representative RepA set does not change).
+
+**Representative RepA.** A plasmid is typed only when it has exactly one *repA*: the one of its complete operon,
+or its single *repA* (401 plasmids in the publication).
+
+**Replicon groups.** Following [Cavassim *et al.* (2020)](https://doi.org/10.1099/mgen.0.000351), representative
+RepA proteins are clustered together with the eight *Rhizobium leguminosarum* reference RepA
+(`assets/Rh_repA_replicons.fasta`, groups Rh01–Rh08) using MMseqs2 (`--min-seq-id 0.9 -c 0.7`).
+A cluster with a reference takes its name; other clusters are named Si01, Si02, ... by decreasing size.
+Equal-sized clusters have no natural order, so `--replicon_names` (sequence `<tab>` group) keeps earlier
+names: a cluster takes the listed name held by most of its members, and new clusters get the next Si number.
+`assets/replicon_group_names_publication.tsv` reproduces the publication's groups exactly.
+
+Output: `results/07_replicon_groups/`
+- `repabc.summary.tsv`: per plasmid, rep genes found, complete operon (1/0) and representative RepA locus
+- `repabc.operons.tsv`: the rep features behind each call
+- `repA.replicon_groups.tsv`: plasmid, RepA locus, replicon group, cluster representative and group size
+- `repA.faa`, `repA_clust_cluster.tsv`, `repA_clust_rep_seq.fasta`: RepA proteins and MMseqs2 clusters
+
+### 8. MobMess on the final accessory plasmids
+
+MobMess is run again (as in Step 4) on the plasmids kept in Step 6 only, so clusters and plasmid systems
+reflect the final set. Cluster IDs differ from Step 4.
+
+Output: `results/08_mobmess_final/`: `mobmess_final_clusters.txt`, `mobmess_final_systems.txt`, graphs, etc.
+
+### 9. Summary table and figures (`matplotlib`, `seaborn`)
+
+One table and four figures (PNG and SVG) of the accessory plasmids. Plasmids are coloured by the samplesheet
+`dataset` column; PLSDB plasmids are `Database` (grey).
+
+| file | content |
+|------|---------|
+| `plasmid_summary.tsv` | one row per accessory plasmid: sample, dataset, length, MobMess cluster, replicon group, RepABC, MOB-typer, geNomad, coverage and review flag |
+| `features_stackbar` | % of plasmids per relaxase type, MPF type, predicted mobility, host range (top 8) and rep genes |
+| `rep_proteins_heatmap` | replication/partition proteins per plasmid; rows clustered (Hamming distance, average linkage) and coloured by dataset |
+| `replicon_groups_by_dataset` | plasmids per replicon group, stacked by dataset |
+| `replicon_multiplicity_length` | length of plasmids with single vs duplicated RepA/B/C, with a Mann-Whitney U test |
+
+Percentages in `features_stackbar` are per plasmid (all accessory plasmids), whereas the publication notebook
+counted one row per rep gene of plasmids carrying RepA.
+
+Output: `results/09_summary/`
 
 ## Parameters
 
@@ -214,6 +266,9 @@ Output: `results/06_plasmid_features/`
 | `--feature_exclude`   | -         | IDs to exclude after manual curation          |
 | `--flag_max_len`      | `50000`   | review flag: plasmids shorter than this (bp)  |
 | `--flag_min_rel_cov`  | `0.5`     | review flag: depth below this × chromosome depth |
+| `--repabc_wrap_circular` | `false` | RepABC windows wrap around circular plasmids |
+| `--repa_references`   | `assets/Rh_repA_replicons.fasta` | reference RepA proteins (headers with `Rh<n>`) |
+| `--replicon_names`    | -         | sequence `<tab>` replicon group, to keep earlier names |
 
 ## Software
 
@@ -224,5 +279,7 @@ Output: `results/06_plasmid_features/`
 - MobMess (commit `97c0cfc`) and PlasX (commit `5c9acfd`), installed from GitHub; MUMmer 4.0.1
 - networkx 3.5, ipysigma 0.24.6
 - Bakta 1.12.0 (database v6.0, full) with AMRFinderPlus 4.2.7; MOB-suite 3.1.9
+- MMseqs2 18.8cc5c
+- matplotlib 3.10.5, seaborn 0.13.2, pandas 2.3.1, SciPy 1.16.1
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

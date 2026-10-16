@@ -1,4 +1,4 @@
-sample,assembly,assembly_info
-TG1,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG1/assembly.fasta,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG1/assembly_info.txt
-TG10,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG10/assembly.fasta,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG10/assembly_info.txt
-TG107,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG107/assembly.fasta,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG107/assembly_info.txt
+sample,assembly,assembly_info,dataset
+TG1,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG1/assembly.fasta,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG1/assembly_info.txt,Dakota (Nanopore)
+TG10,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG10/assembly.fasta,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG10/assembly_info.txt,Dakota (Nanopore)
+TG107,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG107/assembly.fasta,/n/projects/jp2992/Plasmidome_project_MOLNG_4509/genome_asm/TG107/assembly_info.txt,Dakota (Nanopore)

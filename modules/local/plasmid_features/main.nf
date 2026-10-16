@@ -26,6 +26,7 @@ process PLASMID_FEATURES {
     path "plasmid_features.rep_proteins.tsv", emit: rep_proteins
     path "plasmid_features.ids.txt"         , emit: ids
     path "plasmid_features.fasta"           , emit: fasta
+    path "plasmid_features.circular.tsv"    , emit: circular
     path "versions.yml"                     , emit: versions
 
     script:
@@ -55,7 +56,7 @@ process PLASMID_FEATURES {
 
     stub:
     """
-    touch plasmid_features.features.tsv plasmid_features.rep_proteins.tsv plasmid_features.ids.txt plasmid_features.fasta
+    touch plasmid_features.features.tsv plasmid_features.rep_proteins.tsv plasmid_features.ids.txt plasmid_features.fasta plasmid_features.circular.tsv
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         python: stub

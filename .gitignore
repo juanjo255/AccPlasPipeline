@@ -61,6 +61,9 @@ conda_envs/
 databases/
 db/
 
+# Small reference files shipped with the pipeline
+!assets/Rh_repA_replicons.fasta
+
 # ----------------------------------------------------------------------
 # HPC / SLURM logs
 # ----------------------------------------------------------------------
