@@ -2,7 +2,9 @@
  * Keep only contigs shorter than or equal to a maximum length (per-contig, not
  * per-genome) and, optionally, append the sample ID to every contig ID so IDs
  * are unique when contigs from many assemblies are pooled downstream
- * (e.g. contig_4 -> contig_4_TG107).
+ * (e.g. contig_4 -> contig_4_TG107). IDs that already end in _<sample> (e.g.
+ * renamed or polished assemblies) are kept as they are. Only the first word of
+ * each header is used.
  */
 process SEQKIT_FILTER_CONTIGS {
     tag "${meta.id}"
@@ -22,14 +24,22 @@ process SEQKIT_FILTER_CONTIGS {
 
     script:
     prefix = task.ext.prefix ?: "${meta.id}"
-    def rename = add_sample_suffix
-        ? "| seqkit replace --pattern '\$' --replacement '_${meta.id}'"
-        : ''
+    def suffix = add_sample_suffix ? "_${meta.id}" : ''
     """
+    # Keep the first word of each header; append _<sample> unless already present
+    # (plain string comparison: sample names can contain '.' or '-')
     seqkit seq \\
         --max-len ${max_len} \\
+        --only-id \\
         ${assembly} \\
-        ${rename} \\
+        | awk -v sfx='${suffix}' '
+            /^>/ {
+                id = substr(\$1, 2)
+                if (sfx != "" && substr(id, length(id) - length(sfx) + 1) != sfx) id = id sfx
+                print ">" id
+                next
+            }
+            { print }' \\
         > ${prefix}.max_len_filtered.fasta
 
     # Table of retained contigs: id <tab> length

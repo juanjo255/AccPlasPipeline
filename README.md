@@ -1,6 +1,6 @@
 # Accessory Plasmids Identifier
 
-This represent the commands used during my work: "Sinorhizobium meliloti Accessory Plasmidome: Characterization of Diversity, Gene Content, and Organization of Novel Large Plasmids"
+This represent the commands used during my work: **"Sinorhizobium meliloti Accessory Plasmidome: Characterization of Diversity, Gene Content, and Organization of Novel Large Plasmids"**
 
 With the help of Claude, tools used were organized into a Nextflow pipeline to detect accessory plasmids in *Sinorhizobium meliloti* genome assemblies.
 
@@ -22,6 +22,7 @@ This is result of our work done annotating and describing novel *Sinorhizobium m
   - [8. MobMess on the final accessory plasmids](#8-mobmess-on-the-final-accessory-plasmids)
   - [9. Summary table and figures (`matplotlib`, `seaborn`)](#9-summary-table-and-figures-matplotlib-seaborn)
   - [10. Functional annotation (`bakta`, TASmania, `defense-finder`, `antismash`, `run_dbcan`, SignalP)](#10-functional-annotation-bakta-tasmania-defense-finder-antismash-run_dbcan-signalp)
+  - [11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)](#11-replicon-tags-copy-number-and-3-mer-composition-minimap2-samtools-kmertools)
 - [Parameters](#parameters)
 - [Software](#software)
 
@@ -36,7 +37,10 @@ nextflow run nf-core/bacass -r 2.6.0 -profile singularity \
 ```
 
 The pipeline currently requires **Flye** assemblies: contig circularity is read from
-Flye's `assembly_info.txt`.
+Flye's `assembly_info.txt`. Use the **final (polished)** assembly as `assembly`: in the publication,
+Nanopore assemblies were polished with Medaka (`<sample>/medaka_polish/<sample>_asm.fasta`), while PacBio HiFi
+assemblies were used as produced by Flye (`<sample>/<sample>_asm.fasta`). `assembly_info` is Flye's
+`assembly_info.txt` of the same assembly (contig names and circularity are unchanged by polishing).
 
 ## Input
 
@@ -47,6 +51,7 @@ A CSV samplesheet with one Flye assembly per sample (see `assets/samplesheet_exa
 | `sample`        | unique sample name, without whitespace                   |
 | `assembly`      | path to the assembly FASTA (`.fasta`, `.fa`, `.fna`, `.gz` accepted) |
 | `assembly_info` | path to Flye's `assembly_info.txt` for that assembly     |
+| `bam`           | optional reads mapped back to this assembly (sorted BAM), used for plasmid copy number |
 | `dataset`       | optional group used to colour the figures (e.g. `Penn State`, `In-house`); default `Sample`. `Database` is reserved for PLSDB plasmids |
 
 ## Usage
@@ -72,8 +77,9 @@ Add `slurm` to submit jobs to SLURM: `-profile conda,slurm`.
 Keeps contigs **up to `--max_contig_len` bp each** (default `1000000`). This removes the chromosome, pSymA and pSymB, leaving candidate accessory replicons.
 
 By default, each contig ID gets the sample name appended (`contig_4` → `contig_4_TG107`),
-so IDs stay unique when contigs from many genomes are pooled. Turn this off with
-`--add_sample_suffix false`.
+so IDs stay unique when contigs from many genomes are pooled. IDs that already end in `_<sample>` (e.g. renamed
+or polished assemblies) are left unchanged, and only the first word of each header is kept. Turn the suffix off
+with `--add_sample_suffix false`.
 
 Samples with no contig under the threshold are reported with a warning and skipped in later steps.
 
@@ -333,6 +339,32 @@ Output: `results/10_annotation/`
 - Figures: `ta_heatmap_per_plasmid`, `ta_heatmap_per_cluster`, `ta_operon_structures`, `defense_heatmap_per_cluster`,
   `bgc_types`, `cazyme_families`
 
+### 11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)
+
+Runs when `--reference_genome` is given (publication: *S. meliloti* GCF_037023865.1).
+
+**Replicon tags.** Each assembly is aligned to the reference (`minimap2 -x asm5 --end-bonus 100 --secondary=no`).
+Each contig keeps its longest alignment block, and each reference replicon (`--reference_tags`: chromosome, pSymA,
+pSymB) is given to the single contig with the longest block; other contigs are `Other`. This is the publication
+rule and reproduces its tags for all 346 strains. As a safeguard, a tag is kept only if the contig covers at least
+`--tag_min_ref_cov` % (30) of the replicon. Without it, when a replicon is fused to another (e.g. chromosome +
+pSymB), the tag slides to an unrelated contig: in the publication, two plasmids were tagged pSymB while covering
+< 1% of pSymB (all other tags cover ≥ 41%). `--tag_min_ref_cov 0` reproduces the publication exactly.
+
+**Copy number** (samples with a `bam` in the samplesheet). Copy number = median per-base read depth of the plasmid /
+median depth of the chromosome (`samtools depth -a`; 1 kb ignored at each contig end). pSymA and pSymB are reported
+as a sanity check (expected ≈ 1). Reproduces the publication's values exactly.
+
+**3-mer composition.** Accessory plasmids (Step 6, PLSDB excluded) and all main replicons are compared by
+[Kmertools](https://github.com/anuradhawick/kmertools) 3-mer frequencies (32 canonical 3-mers), Bray-Curtis
+distances and a UMAP (random_state 42). Length and GC of accessory plasmids are compared with each main replicon
+type (two-sided Mann-Whitney U, Bonferroni).
+
+Output: `results/11_replicons/`
+- `tags/<sample>.replicon_tags.tsv`: tag, length, best reference replicon and its coverage, per contig
+- `copy_number.tsv` (all samples), `copy_number/<sample>.copy_number.tsv`
+- `kmer/kmer_3mer_frequencies.tsv`, `kmer/kmer_umap.tsv`, `kmer/kmer_stats.tsv`; figures `kmer_umap`, `replicon_length`, `replicon_gc`
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -370,6 +402,9 @@ Output: `results/10_annotation/`
 | `--cazyme_min_tools`  | `2`       | minimum dbCAN tools supporting a CAZyme       |
 | `--signalp_module`    | -         | environment module providing `signalp6` (optional) |
 | `--signalp_model_dir` | -         | SignalP 6 model directory                     |
+| `--reference_genome`  | -         | reference genome FASTA; enables Step 11       |
+| `--reference_tags`    | `assets/reference_replicon_tags.tsv` | reference replicon `<tab>` tag (Chromosome/pSymA/pSymB) |
+| `--tag_min_ref_cov`   | `30`      | minimum % coverage of the replicon for a tag (0 = publication rule) |
 
 \* unless `--skip_annotation`.
 
@@ -386,5 +421,6 @@ Output: `results/10_annotation/`
 - matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
 - pyhmmer 0.12.0 and pyrodigal 3.7.1 (TASer-like TA search); DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
   run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast (optional, licensed)
+- minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

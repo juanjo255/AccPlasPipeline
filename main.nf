@@ -31,6 +31,9 @@ include { ANTISMASH             } from './modules/local/antismash'
 include { DBCAN                 } from './modules/local/dbcan'
 include { SIGNALP               } from './modules/local/signalp'
 include { ANNOTATION_SUMMARY    } from './modules/local/annotation_summary'
+include { TAG_REPLICONS         } from './modules/local/tag_replicons'
+include { COPY_NUMBER           } from './modules/local/copy_number'
+include { KMER_COMPOSITION      } from './modules/local/kmer_composition'
 
 workflow {
 
@@ -77,11 +80,14 @@ workflow {
             if (dataset == 'Database') {
                 error "Dataset name 'Database' is reserved for PLSDB plasmids (sample ${row.sample})"
             }
-            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true) ]
+            // Optional reads mapped back to the assembly (BAM), for plasmid copy number
+            def bam = row.bam ? file(row.bam, checkIfExists: true) : []
+            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true), bam ]
         }
 
-    ch_assemblies    = ch_samples.map { meta, assembly, _info -> [ meta, assembly ] }
-    ch_assembly_info = ch_samples.map { meta, _assembly, info -> [ meta, info ] }
+    ch_assemblies    = ch_samples.map { meta, assembly, _info, _bam -> [ meta, assembly ] }
+    ch_assembly_info = ch_samples.map { meta, _assembly, info, _bam -> [ meta, info ] }
+    ch_bam           = ch_samples.filter { _meta, _assembly, _info, bam -> bam }.map { meta, _assembly, _info, bam -> [ meta, bam ] }
 
     // Fail early on duplicated sample names (they would collide in contig IDs and outputs)
     ch_assemblies
@@ -327,6 +333,38 @@ workflow {
             ANTISMASH.out.outdir,
             DBCAN.out.cazymes,
             ch_signalp
+        )
+    }
+
+    // ---------------------------------------------------------------------
+    // Step 11: replicon tags (Chromosome / pSymA / pSymB), plasmid copy number
+    //          and 3-mer composition vs the main replicons
+    // ---------------------------------------------------------------------
+    if (params.reference_genome) {
+        TAG_REPLICONS (
+            ch_assemblies,
+            file(params.reference_genome, checkIfExists: true),
+            file(params.reference_tags, checkIfExists: true),
+            params.add_sample_suffix,
+            params.tag_min_ref_cov
+        )
+
+        // Copy number only for samples with a BAM
+        COPY_NUMBER (
+            TAG_REPLICONS.out.tags.join(ch_bam),
+            PLASMID_FEATURES.out.ids,
+            params.add_sample_suffix
+        )
+        COPY_NUMBER.out.copy_number
+            .map { _meta, tsv -> tsv }
+            .collectFile(name: 'copy_number.tsv', keepHeader: true, skip: 1, sort: true,
+                         storeDir: "${params.outdir}/11_replicons")
+
+        KMER_COMPOSITION (
+            TAG_REPLICONS.out.main.map { _meta, f -> f }.collect(),
+            TAG_REPLICONS.out.tags.map { _meta, f -> f }.collect(),
+            PLASMID_FEATURES.out.fasta,
+            PLSDB_SELECT.out.ids
         )
     }
 }
