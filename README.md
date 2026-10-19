@@ -6,6 +6,11 @@ With the help of Claude, tools used were organized into a Nextflow pipeline to d
 
 This is result of our work done annotating and describing novel *Sinorhizobium meliloti* accessory plasmids.
 
+![AccPlasPipeline workflow](assets/workflow_compact.svg)
+
+A more detailed diagram is in [assets/workflow.svg](assets/workflow.svg).
+Both are generated from Graphviz.
+
 ## Contents
 
 - [0. Genome assembly (upstream, not part of this pipeline)](#0-genome-assembly-upstream-not-part-of-this-pipeline)
@@ -23,6 +28,8 @@ This is result of our work done annotating and describing novel *Sinorhizobium m
   - [9. Summary table and figures (`matplotlib`, `seaborn`)](#9-summary-table-and-figures-matplotlib-seaborn)
   - [10. Functional annotation (`bakta`, TASmania, `defense-finder`, `antismash`, `run_dbcan`, SignalP)](#10-functional-annotation-bakta-tasmania-defense-finder-antismash-run_dbcan-signalp)
   - [11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)](#11-replicon-tags-copy-number-and-3-mer-composition-minimap2-samtools-kmertools)
+  - [12. Pairwise ANI between accessory plasmids (`skani dist`)](#12-pairwise-ani-between-accessory-plasmids-skani-dist)
+  - [13. Gene content (`eggnog-mapper`, `panaroo`)](#13-gene-content-eggnog-mapper-panaroo)
 - [Parameters](#parameters)
 - [Software](#software)
 
@@ -52,6 +59,7 @@ A CSV samplesheet with one Flye assembly per sample (see `assets/samplesheet_exa
 | `assembly`      | path to the assembly FASTA (`.fasta`, `.fa`, `.fna`, `.gz` accepted) |
 | `assembly_info` | path to Flye's `assembly_info.txt` for that assembly     |
 | `bam`           | optional reads mapped back to this assembly (sorted BAM), used for plasmid copy number |
+| `gff`           | optional whole-genome Bakta GFF3 of this assembly, used for gene sharing (Step 13) |
 | `dataset`       | optional group used to colour the figures (e.g. `Penn State`, `In-house`); default `Sample`. `Database` is reserved for PLSDB plasmids |
 
 ## Usage
@@ -365,6 +373,52 @@ Output: `results/11_replicons/`
 - `copy_number.tsv` (all samples), `copy_number/<sample>.copy_number.tsv`
 - `kmer/kmer_3mer_frequencies.tsv`, `kmer/kmer_umap.tsv`, `kmer/kmer_stats.tsv`; figures `kmer_umap`, `replicon_length`, `replicon_gc`
 
+### 12. Pairwise ANI between accessory plasmids (`skani dist`)
+
+All accessory plasmids (Step 6) are compared all-vs-all with [skani](https://doi.org/10.1038/s41592-023-02018-3)
+(default settings). Each plasmid is written to its own FASTA first: this reproduces the publication's values exactly,
+whereas `--qi/--ri` on one multi-FASTA changes ~4% of them. The alignment fraction of each pair is that of the
+longer plasmid, `AF = min(Align_fraction_ref, Align_fraction_query)` (publication Fig. S2D).
+
+Output: `results/12_plasmid_ani/`
+- `skani_dist.tsv`: skani output; `plasmid_ani.tsv`: pairs (self-comparisons removed) with `AF`
+- `ani_vs_af`: hexbin density of AF vs ANI
+
+### 13. Gene content (`eggnog-mapper`, `panaroo`)
+
+Needs the Step 10 annotation. Two parts, each optional:
+
+**A. COG analysis of accessory plasmids** (with `--eggnog_db`). The accessory plasmid proteins are annotated with
+[eggNOG-mapper](https://doi.org/10.1093/molbev/msab293) 2.1.13 (`-m mmseqs`, eggNOG database 5.0.2 in the publication).
+Then, as in the publication notebook:
+- COG category counts (each letter of a multi-letter category counted once);
+- gene content: presence/absence of the root eggNOG orthologous group per plasmid, Jaccard distances, PCoA and
+  metric MDS, coloured by the 10 largest MobMess clusters (clusters with ≥ 5 plasmids);
+- COG enrichment per MobMess cluster with more than `--cog_min_cluster` (3) plasmids: one-sided Fisher exact test
+  (cluster vs all other plasmids) on the number of plasmids carrying each COG letter, Benjamini-Hochberg over all
+  tests; significant at FDR < 0.05 and log2FC > 0.2;
+- COG composition per cluster (clusters with ≥ `--cog_min_cluster` plasmids; note: ≥ here, > for the enrichment, as in
+  the publication), row z-scores.
+
+On the publication's eggNOG output this reproduces the notebook's enrichment exactly (440 tests, 21 significant).
+
+**B. Gene sharing with the main replicons** (with `--gene_sharing`, `--reference_genome` and a `gff` column in the
+samplesheet: the whole-genome Bakta GFF3 of each assembly). [Panaroo](https://doi.org/10.1186/s13059-020-02090-4) 1.6.0
+(`--clean-mode moderate --remove-invalid-genes`) is run on the whole genomes plus one standalone GFF per accessory plasmid
+(Step 10). Gene families are assigned to accessory plasmids only through the standalone plasmid GFFs, and to the
+chromosome / pSymA / pSymB through the genome GFFs and the Step 11 tags (genes on accessory-plasmid contigs skipped,
+so nothing is counted twice). On the publication's Panaroo output this reproduces `family_group_membership.csv`
+exactly and 34.6% of accessory-plasmid families shared with a main replicon. Panaroo on hundreds of genomes needs
+a large node (`process_panaroo`: 32 CPUs, 100 GB, 72 h; the publication used 70 CPUs).
+
+Output: `results/13_gene_content/`
+- `eggnog_mapper/plasmids_eggnog.emapper.*`
+- `cog_analysis/`: `cog_counts.tsv`, `og_presence_absence.tsv`, `cog_ordination.tsv`, `cog_enrichment.tsv` (all tests),
+  `cog_enrichment_significant.tsv`; figures `cog_counts`, `cog_pcoa`, `cog_mds`, `cog_enrichment_dotplot`, `cog_cluster_heatmap`
+- `panaroo/`: Panaroo output
+- `gene_sharing/`: `family_group_membership.csv`, `gene_sharing_summary.tsv`, `shared_families_cog.tsv`;
+  figures `gene_sharing_upset`, `shared_families_cog`
+
 ## Parameters
 
 | parameter             | default   | description                                    |
@@ -405,6 +459,9 @@ Output: `results/11_replicons/`
 | `--reference_genome`  | -         | reference genome FASTA; enables Step 11       |
 | `--reference_tags`    | `assets/reference_replicon_tags.tsv` | reference replicon `<tab>` tag (Chromosome/pSymA/pSymB) |
 | `--tag_min_ref_cov`   | `30`      | minimum % coverage of the replicon for a tag (0 = publication rule) |
+| `--eggnog_db`         | -         | eggNOG-mapper data directory; enables the COG analysis |
+| `--cog_min_cluster`   | `3`       | COG enrichment: clusters with > N plasmids (heatmap: ≥ N) |
+| `--gene_sharing`      | `false`   | run Panaroo gene sharing (needs `--reference_genome` and samplesheet `gff`) |
 
 \* unless `--skip_annotation`.
 
@@ -421,6 +478,7 @@ Output: `results/11_replicons/`
 - matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
 - pyhmmer 0.12.0 and pyrodigal 3.7.1 (TASer-like TA search); DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
   run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast (optional, licensed)
-- minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12
+- minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12; skani 0.3.2
+- eggNOG-mapper 2.1.13 (MMseqs2 16.747c6, DIAMOND 2.0.15); Panaroo 1.6.0 (CD-HIT 4.8.1, MAFFT 7.526); scikit-learn 1.7.1; statsmodels 0.14.6
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

@@ -1,0 +1,8 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::eggnog-mapper=2.1.13
+  - bioconda::mmseqs2=16.747c6
+  - bioconda::diamond=2.0.15

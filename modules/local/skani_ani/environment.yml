@@ -1,0 +1,9 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::skani=0.3.2
+  - conda-forge::python=3.12
+  - conda-forge::pandas=2.3.1
+  - conda-forge::matplotlib-base=3.10.5

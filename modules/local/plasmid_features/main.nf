@@ -56,7 +56,11 @@ process PLASMID_FEATURES {
 
     stub:
     """
-    touch plasmid_features.features.tsv plasmid_features.rep_proteins.tsv plasmid_features.ids.txt plasmid_features.fasta plasmid_features.circular.tsv
+    # One dummy plasmid so that stub runs also exercise the downstream steps
+    printf '>stub_plasmid\nACGTACGTACGT\n' > plasmid_features.fasta
+    echo stub_plasmid > plasmid_features.ids.txt
+    printf 'stub_plasmid\t1\n' > plasmid_features.circular.tsv
+    touch plasmid_features.features.tsv plasmid_features.rep_proteins.tsv
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":
         python: stub

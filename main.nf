@@ -34,6 +34,11 @@ include { ANNOTATION_SUMMARY    } from './modules/local/annotation_summary'
 include { TAG_REPLICONS         } from './modules/local/tag_replicons'
 include { COPY_NUMBER           } from './modules/local/copy_number'
 include { KMER_COMPOSITION      } from './modules/local/kmer_composition'
+include { SKANI_ANI             } from './modules/local/skani_ani'
+include { EGGNOG_MAPPER         } from './modules/local/eggnog_mapper'
+include { COG_ANALYSIS          } from './modules/local/cog_analysis'
+include { PANAROO               } from './modules/local/panaroo'
+include { GENE_SHARING          } from './modules/local/gene_sharing'
 
 workflow {
 
@@ -82,12 +87,15 @@ workflow {
             }
             // Optional reads mapped back to the assembly (BAM), for plasmid copy number
             def bam = row.bam ? file(row.bam, checkIfExists: true) : []
-            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true), bam ]
+            // Optional whole-genome GFF3 (Bakta) of the same assembly, for gene sharing with the main replicons
+            def gff = row.gff ? file(row.gff, checkIfExists: true) : []
+            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true), bam, gff ]
         }
 
-    ch_assemblies    = ch_samples.map { meta, assembly, _info, _bam -> [ meta, assembly ] }
-    ch_assembly_info = ch_samples.map { meta, _assembly, info, _bam -> [ meta, info ] }
-    ch_bam           = ch_samples.filter { _meta, _assembly, _info, bam -> bam }.map { meta, _assembly, _info, bam -> [ meta, bam ] }
+    ch_assemblies    = ch_samples.map { meta, assembly, _info, _bam, _gff -> [ meta, assembly ] }
+    ch_assembly_info = ch_samples.map { meta, _assembly, info, _bam, _gff -> [ meta, info ] }
+    ch_bam           = ch_samples.filter { _m, _a, _i, bam, _g -> bam }.map { meta, _a, _i, bam, _g -> [ meta, bam ] }
+    ch_genome_gff    = ch_samples.filter { _m, _a, _i, _b, gff -> gff }.map { meta, _a, _i, _b, gff -> [ meta, gff ] }
 
     // Fail early on duplicated sample names (they would collide in contig IDs and outputs)
     ch_assemblies
@@ -337,6 +345,11 @@ workflow {
     }
 
     // ---------------------------------------------------------------------
+    // Step 12: pairwise ANI / alignment fraction between accessory plasmids
+    // ---------------------------------------------------------------------
+    SKANI_ANI ( PLASMID_FEATURES.out.fasta )
+
+    // ---------------------------------------------------------------------
     // Step 11: replicon tags (Chromosome / pSymA / pSymB), plasmid copy number
     //          and 3-mer composition vs the main replicons
     // ---------------------------------------------------------------------
@@ -365,6 +378,47 @@ workflow {
             TAG_REPLICONS.out.tags.map { _meta, f -> f }.collect(),
             PLASMID_FEATURES.out.fasta,
             PLSDB_SELECT.out.ids
+        )
+    }
+
+    // ---------------------------------------------------------------------
+    // Step 13: gene content (needs Step 10 annotation)
+    //   A. eggNOG-mapper COG analysis of the accessory plasmids (--eggnog_db)
+    //   B. Panaroo gene sharing with the main replicons (--reference_genome + samplesheet gff)
+    // ---------------------------------------------------------------------
+    if (!params.skip_annotation && params.eggnog_db) {
+        EGGNOG_MAPPER (
+            MERGE_ANNOTATIONS.out.faa,
+            file(params.eggnog_db, checkIfExists: true)
+        )
+        COG_ANALYSIS (
+            EGGNOG_MAPPER.out.annotations,
+            PLOT_PLASMID_FEATURES.out.summary,
+            params.cog_min_cluster
+        )
+        ch_eggnog = EGGNOG_MAPPER.out.annotations
+    } else {
+        ch_eggnog = channel.value([])
+    }
+
+    if (!params.skip_annotation && params.reference_genome && params.gene_sharing) {
+        // Genome GFF name (Panaroo sample) -> sample, to match contigs without the _<sample> suffix
+        ch_gff_samples = ch_genome_gff
+            .map { meta, gff -> "${gff.baseName}\t${meta.id}" }
+            .collectFile(name: 'gff_samples.tsv', newLine: true, sort: true)
+
+        PANAROO (
+            ch_genome_gff.map { _meta, gff -> gff }
+                .mix(BAKTA_PLASMID.out.gff3.map { _meta, gff -> gff })
+                .collect()
+        )
+        GENE_SHARING (
+            PANAROO.out.gpa,
+            PANAROO.out.gene_data,
+            TAG_REPLICONS.out.tags.map { _meta, f -> f }.collect(),
+            PLASMID_FEATURES.out.ids,
+            ch_eggnog,
+            ch_gff_samples
         )
     }
 }

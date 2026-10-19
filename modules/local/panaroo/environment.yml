@@ -1,0 +1,8 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::panaroo=1.6.0
+  - bioconda::cd-hit=4.8.1
+  - conda-forge::mafft=7.526
