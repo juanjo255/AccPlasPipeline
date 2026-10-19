@@ -3,6 +3,16 @@ channels:
   - conda-forge
   - bioconda
 dependencies:
+  # Versions of the working 'panaroo' environment: newer Biopython (> 1.85) rejects
+  # the comment lines Panaroo writes at the start of its temporary FASTA files
   - bioconda::panaroo=1.6.0
   - bioconda::cd-hit=4.8.1
   - conda-forge::mafft=7.526
+  - conda-forge::python=3.9.23
+  - conda-forge::biopython=1.85
+  - conda-forge::networkx=3.2.1
+  - conda-forge::numpy=2.0.2
+  - conda-forge::scikit-learn=1.6.1
+  - bioconda::gffutils=0.13
+  - bioconda::dendropy=5.0.8
+  - conda-forge::intbitset=3.0.2
