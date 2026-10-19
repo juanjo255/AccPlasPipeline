@@ -29,7 +29,8 @@ Both are generated from Graphviz.
   - [10. Functional annotation (`bakta`, TASmania, `defense-finder`, `antismash`, `run_dbcan`, SignalP)](#10-functional-annotation-bakta-tasmania-defense-finder-antismash-run_dbcan-signalp)
   - [11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)](#11-replicon-tags-copy-number-and-3-mer-composition-minimap2-samtools-kmertools)
   - [12. Pairwise ANI between accessory plasmids (`skani dist`)](#12-pairwise-ani-between-accessory-plasmids-skani-dist)
-  - [13. Gene content (`eggnog-mapper`, `panaroo`)](#13-gene-content-eggnog-mapper-panaroo)
+  - [13. Gene content (`eggnog-mapper`, `panaroo`, SignalP 4.1)](#13-gene-content-eggnog-mapper-panaroo-signalp-41)
+  - [14. Plasmid partners and cointegrates (`cointegrates.py`)](#14-plasmid-partners-and-cointegrates-cointegratespy)
 - [Parameters](#parameters)
 - [Software](#software)
 
@@ -384,9 +385,9 @@ Output: `results/12_plasmid_ani/`
 - `skani_dist.tsv`: skani output; `plasmid_ani.tsv`: pairs (self-comparisons removed) with `AF`
 - `ani_vs_af`: hexbin density of AF vs ANI
 
-### 13. Gene content (`eggnog-mapper`, `panaroo`)
+### 13. Gene content (`eggnog-mapper`, `panaroo`, SignalP 4.1)
 
-Needs the Step 10 annotation. Two parts, each optional:
+Needs the Step 10 annotation. Three parts, each optional:
 
 **A. COG analysis of accessory plasmids** (with `--eggnog_db`). The accessory plasmid proteins are annotated with
 [eggNOG-mapper](https://doi.org/10.1093/molbev/msab293) 2.1.13 (`-m mmseqs`, eggNOG database 5.0.2 in the publication).
@@ -418,6 +419,83 @@ Output: `results/13_gene_content/`
 - `panaroo/`: Panaroo output
 - `gene_sharing/`: `family_group_membership.csv`, `gene_sharing_summary.tsv`, `shared_families_cog.tsv`;
   figures `gene_sharing_upset`, `shared_families_cog`
+- `panaroo_plasmids/`, `signalp4/`, `signal_peptides/`: see C below
+
+**C. Signal peptide-bearing protein families** (with `--signalp4_module`; publication Fig. 9D). SignalP 4.1
+(`-t gram- -s notm`) is run on all accessory plasmid proteins. SignalP is licensed and not on conda, so it is loaded
+as an environment module (at Stowers: `--signalp4_module spada/1.0`, which provides `signalp4`). Nextflow loads it with
+`module load`, so the `module` command must exist in the job shell (it does on SLURM nodes; for local runs start
+Nextflow from a login shell). The hits are linked
+to the gene families of a second, plasmid-only Panaroo run (`PANAROO_PLASMIDS`, same options as B, as the
+publication's `pan_plasmidome_panaroo`). As in the notebook:
+- plasmids/clusters with a signal-peptide protein in a family that is not conjugation-related (`conjuga`);
+- family ranking: CAZymes (Step 10, ≥ `--cazyme_min_tools`) removed, families ranked by the number of plasmids,
+  conjugation-related products dropped, each family labelled with the product of its longest member; the top
+  `--signalp_top` (15) are plotted.
+
+On the publication's SignalP 4.1 and Panaroo outputs this reproduces the notebook: 5,759 signal-peptide proteins,
+615 families, 395 plasmids in 138 of 148 clusters (93%), and the same family ranking (ties are kept in a stable order).
+On a 200-protein test, `signalp4` from the module gave exactly the published hits.
+
+Output (`results/13_gene_content/`): `signalp4/` (`signalp4.summary`, `.mature.fasta`, `.short`),
+`panaroo_plasmids/`, `signal_peptides/`: `signal_peptide_proteins.tsv`, `signal_peptide_families.tsv`,
+`signal_peptide_summary.tsv`, figure `signal_peptide_families`
+
+### 14. Plasmid partners and cointegrates (`cointegrates.py`)
+
+Needs the Step 10 annotation. Uses the **first MobMess run (Step 4)**, whose cluster IDs are the ones in the
+publication, restricted to the final accessory plasmids. MobMess lists, per system, every plasmid that contains the
+system's backbone (`*_systems.txt`, `compound_plasmids`; a plasmid can be the backbone of its own system and contain
+another). For each such pair, the circular backbone member covering most of the accessory plasmid is taken from
+MobMess's own alignment blocks (`*_ani_blocks.txt`).
+
+Only **plasmid partners** are kept: backbone ≥ `--partner_min_len` (20 kb) with a Rep gene in the region it covers.
+This leaves out the other two kinds of MobMess backbones found in accessory plasmids: ~3 kb insertion sequences
+(PS3 ISRm17, PS15 IS66, PS12 IS30; 203 plasmids) and NRPS-derived contigs (PS16–PS19 and PS28, a solanimycin-like
+SolG NRPS region shared by ~100 plasmids).
+
+For each accessory plasmid with a plasmid partner:
+- **Cointegrate**: two plasmid partners from different systems that each cover ≥ `--cointegrate_min_part` (0.2) of
+  the plasmid, overlap by ≤ `--cointegrate_max_overlap` (0.2 of the smaller covered length), and together cover
+  ≥ `--cointegrate_min_union` (0.8). Junctions (overlap between the two backbones and the ends of their aligned
+  segments) are reported with the Bakta genes within `--junction_window` (5 kb), mobile-element genes flagged
+  (Tn3 / transposase / resolvase / integrase / recombinase).
+- **Extra segments**: every region ≥ `--segment_min_bp` (5 kb) not covered by the plasmid partner(s), i.e. candidate
+  integrations of another plasmid or MGE. Reported with the genes inside (Rep, Par, integrase/recombinase,
+  relaxase/mobilization, conjugation, transposase), the mobile-element genes at its ends, and the best match among
+  the other MobMess sequences (largest share of the segment aligned; same-cluster sequences and sequences containing
+  the whole plasmid skipped; a plasmid carrying the same segment, not necessarily its source). Class (first match):
+  *plasmid-derived* (Rep inside) > *integrative/mobilizable* (integrase/recombinase or relaxase inside) >
+  *transposon-bounded* (mobile genes at an end) > *other*.
+
+On the publication's MobMess output, 136 accessory plasmids (30 clusters) contain a plasmid partner and carry 294
+extra segments (median 68 kb of extra sequence per plasmid):
+
+| class | segments | plasmids | median size |
+|---|---|---|---|
+| transposon-bounded | 98 | 75 | 14 kb |
+| integrative/mobilizable | 82 | 75 | 57 kb |
+| plasmid-derived | 57 | 45 | 52 kb |
+| other | 57 | 52 | 18 kb |
+
+236 of the 294 segments are ≥ 80% aligned to another sequence, i.e. shared with other plasmids.
+
+Validation against the publication:
+- Only cluster 381 (both members) is a cointegrate, unchanged over a threshold grid (part ≥ 0.15–0.3,
+  overlap ≤ 0.1–0.3, union ≥ 0.8–0.9). Its plasmid partners (clusters 364 and 380) cover 174 kb and 150 kb of the
+  315 kb plasmid, and the junction genes include the four Tn3 genes of the publication's clinker figure (Fig. 5B).
+- The Fig. S5A plasmid (bc2012, cluster 235) contains the ~73 kb PS23 backbone plus a 79 kb extra segment with an
+  integrase and a Tn3 family transposase at its end and no Rep protein inside; the same 79 kb segment is fully
+  present in the cluster 410 plasmids.
+
+Output: `results/14_cointegrates/`
+- `plasmid_partners.tsv`: accessory plasmid, plasmid partner system / backbone cluster / backbone sequence, covered
+  bp and fractions
+- `extra_segments.tsv`: coordinates, size, class, gene counts, mobile genes at the ends, best match
+- `cointegrates.tsv`: both partners, covered kb and fractions, overlap, union, junctions, mobile genes at the junctions
+- `integration_summary.tsv`: one row per plasmid (partners, extra bp, segments per class, cointegrate)
+- `cointegrate_junction_genes.tsv`: mobile genes at cointegrate junctions and segment ends
+- figure `integration_map`: one bar per plasmid, partner-covered sequence in grey and extra segments coloured by class
 
 ## Parameters
 
@@ -462,6 +540,14 @@ Output: `results/13_gene_content/`
 | `--eggnog_db`         | -         | eggNOG-mapper data directory; enables the COG analysis |
 | `--cog_min_cluster`   | `3`       | COG enrichment: clusters with > N plasmids (heatmap: ≥ N) |
 | `--gene_sharing`      | `false`   | run Panaroo gene sharing (needs `--reference_genome` and samplesheet `gff`) |
+| `--signalp4_module`   | -         | environment module providing `signalp4` (Stowers: `spada/1.0`); enables Step 13C |
+| `--signalp_top`       | `15`      | signal-peptide families plotted               |
+| `--partner_min_len`   | `20000`   | plasmid partner: minimum backbone length (and a Rep gene in the covered region) |
+| `--cointegrate_min_part` | `0.2`  | cointegrate: each plasmid partner covers ≥ this fraction of the plasmid |
+| `--cointegrate_max_overlap` | `0.2` | cointegrate: partners overlap ≤ this fraction of the smaller one |
+| `--cointegrate_min_union` | `0.8` | cointegrate: partners together cover ≥ this fraction |
+| `--segment_min_bp`    | `5000`    | minimum extra segment reported (bp) |
+| `--junction_window`   | `5000`    | genes within this distance of a junction / segment end are reported |
 
 \* unless `--skip_annotation`.
 
@@ -477,7 +563,7 @@ Output: `results/13_gene_content/`
 - MMseqs2 18.8cc5c
 - matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
 - pyhmmer 0.12.0 and pyrodigal 3.7.1 (TASer-like TA search); DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
-  run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast (optional, licensed)
+  run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast and SignalP 4.1g (optional, licensed, environment modules)
 - minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12; skani 0.3.2
 - eggNOG-mapper 2.1.13 (MMseqs2 16.747c6, DIAMOND 2.0.15); Panaroo 1.6.0 (CD-HIT 4.8.1, MAFFT 7.526); scikit-learn 1.7.1; statsmodels 0.14.6
 - conda (`-profile conda`)

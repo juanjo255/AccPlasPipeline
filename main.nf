@@ -39,6 +39,10 @@ include { EGGNOG_MAPPER         } from './modules/local/eggnog_mapper'
 include { COG_ANALYSIS          } from './modules/local/cog_analysis'
 include { PANAROO               } from './modules/local/panaroo'
 include { GENE_SHARING          } from './modules/local/gene_sharing'
+include { PANAROO as PANAROO_PLASMIDS } from './modules/local/panaroo'
+include { SIGNALP4              } from './modules/local/signalp4'
+include { SIGNAL_PEPTIDES       } from './modules/local/signal_peptides'
+include { COINTEGRATES          } from './modules/local/cointegrates'
 
 workflow {
 
@@ -385,6 +389,7 @@ workflow {
     // Step 13: gene content (needs Step 10 annotation)
     //   A. eggNOG-mapper COG analysis of the accessory plasmids (--eggnog_db)
     //   B. Panaroo gene sharing with the main replicons (--reference_genome + samplesheet gff)
+    //   C. signal peptide families (--signalp4_module)
     // ---------------------------------------------------------------------
     if (!params.skip_annotation && params.eggnog_db) {
         EGGNOG_MAPPER (
@@ -419,6 +424,36 @@ workflow {
             PLASMID_FEATURES.out.ids,
             ch_eggnog,
             ch_gff_samples
+        )
+    }
+
+    // C. Signal peptide-bearing protein families (Fig. 9D): SignalP 4.1 on all plasmid
+    //    proteins + plasmid-only Panaroo families. SignalP is licensed: environment module only.
+    if (!params.skip_annotation && params.signalp4_module) {
+        PANAROO_PLASMIDS (
+            BAKTA_PLASMID.out.gff3.map { _meta, gff -> gff }.collect()
+        )
+        SIGNALP4 ( MERGE_ANNOTATIONS.out.faa )
+        SIGNAL_PEPTIDES (
+            SIGNALP4.out.summary,
+            MERGE_ANNOTATIONS.out.faa,
+            PANAROO_PLASMIDS.out.gpa,
+            PLOT_PLASMID_FEATURES.out.summary,
+            DBCAN.out.cazymes,
+            params.signalp_top
+        )
+    }
+
+    // ---------------------------------------------------------------------
+    // Step 14: cointegrates (MobMess containment of Step 4 + Bakta junction genes)
+    // ---------------------------------------------------------------------
+    if (!params.skip_annotation) {
+        COINTEGRATES (
+            MOBMESS_SYSTEMS.out.clusters,
+            MOBMESS_SYSTEMS.out.systems,
+            MOBMESS_SYSTEMS.out.ani_blocks,
+            PLASMID_FEATURES.out.ids,
+            MERGE_ANNOTATIONS.out.tsv
         )
     }
 }
