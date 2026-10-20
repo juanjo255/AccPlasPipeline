@@ -19,6 +19,7 @@ include { MOBMESS_NETWORK       } from './modules/local/mobmess_network'
 include { REPABC_HMM            } from './modules/local/repabc_hmm'
 include { CONTIG_MARKERS        } from './modules/local/contig_markers'
 include { ASSEMBLY_GRAPH        } from './modules/local/assembly_graph'
+include { CLEAN_GENOMES         } from './modules/local/clean_genomes'
 include { BAKTA                 } from './modules/local/bakta'
 include { MOB_TYPER             } from './modules/local/mob_typer'
 include { PLASMID_FEATURES      } from './modules/local/plasmid_features'
@@ -428,6 +429,24 @@ workflow {
         ASSEMBLY_GRAPH.out.graph.map { _meta, f -> f }.collect().ifEmpty([]),
         params.review_genomad_score
     )
+
+    // ---------------------------------------------------------------------
+    // Step 6b: clean genomes (main replicons + retained accessory plasmids + unplaced pieces),
+    // re-oriented and with NCBI source modifiers. Needs the replicon tags (--reference_genome).
+    // ---------------------------------------------------------------------
+    if (params.reference_genome) {
+        CLEAN_GENOMES (
+            ch_assemblies.join(ch_assembly_info).join(TAG_REPLICONS.out.tags),
+            PLASMID_FEATURES.out.ids.first(),      // value channels: shared by every sample
+            CONTIG_MARKERS.out.review.first(),
+            params.curation ? file(params.curation, checkIfExists: true) : [],
+            file(params.repabc_hmms, checkIfExists: true),
+            params.add_sample_suffix
+        )
+        CLEAN_GENOMES.out.summary
+            .collectFile(name: 'clean_genomes_summary.tsv', keepHeader: true, skip: 1, sort: true,
+                         storeDir: "${params.outdir}/06b_clean_genomes")
+    }
 
     // ---------------------------------------------------------------------
     // Step 13: gene content (needs Step 10 annotation)

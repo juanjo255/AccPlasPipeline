@@ -36,6 +36,7 @@ digraph AccPlasPipeline {
         s8    [label=<<b>8 · MobMess on final set</b><br/>clusters and plasmid systems>];
         s9    [label=<<b>9 · Summary table + figures</b><br/>MOB/MPF/mobility · Rep · replicon groups<br/>UpSet · plasmids per strain (matplotlib)>];
         s12   [label=<<b>12 · Pairwise ANI</b><br/>skani dist · ANI vs alignment fraction>];
+        cg    [label=<<b>6b · Clean genomes</b><br/>chromosome · pSymA · pSymB · p&lt;strain&gt;a,b… · unplaced<br/>dnaapler (dnaA) · RepA start · NCBI headers>];
     }
 
     subgraph cluster_C {
@@ -102,6 +103,9 @@ digraph AccPlasPipeline {
     final -> s8;
     final -> s12;
     s7 -> s9;
+    final -> cg;
+    tag -> cg [style=dashed];
+    rev -> cg [style=dashed];
 
     // C: functional annotation
     final -> s10;

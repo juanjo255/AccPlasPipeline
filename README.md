@@ -24,6 +24,7 @@ Both are generated with Graphviz from `assets/workflow_compact.dot` and `assets/
   - [4b. Contig markers and review of linear contigs (`pyrodigal`, `pyhmmer`)](#4b-contig-markers-and-review-of-linear-contigs-pyrodigal-pyhmmer)
   - [5. MobMess containment network (`networkx`, `ipysigma`)](#5-mobmess-containment-network-networkx-ipysigma)
   - [6. Plasmid markers (`bakta`, `mob_typer`, geNomad)](#6-plasmid-markers-bakta-mob_typer-genomad)
+  - [6b. Clean genomes (`clean_genome.py`, `dnaapler`)](#6b-clean-genomes-clean_genomepy-dnaapler)
   - [7. RepABC operons and replicon groups (`repabc_operons.py`, `mmseqs easy-cluster`)](#7-repabc-operons-and-replicon-groups-repabc_operonspy-mmseqs-easy-cluster)
   - [8. MobMess on the final accessory plasmids](#8-mobmess-on-the-final-accessory-plasmids)
   - [9. Summary table and figures (`matplotlib`, `seaborn`)](#9-summary-table-and-figures-matplotlib-seaborn)
@@ -294,6 +295,38 @@ Output: `results/06_plasmid_features/`
 - `bakta/`: Bakta annotation (`.tsv`, `.gff3`, `.gbff`, `.faa`, ...)
 - `mob_typer/`: MOB-typer reports
 - `plasmid_features.circular.tsv`: circularity of the kept plasmids (input of Step 8)
+
+### 6b. Clean genomes (`clean_genome.py`, `dnaapler`)
+
+With `--reference_genome` (replicon tags, Step 11), one clean genome per strain for NCBI submission and later
+analyses: `results/06b_clean_genomes/<sample>.clean.fasta`.
+
+| sequence | rule | FASTA header (NCBI source modifiers) |
+|---|---|---|
+| chromosome | tag Chromosome | `[location=chromosome]` |
+| pSymA, pSymB | tags pSymA / pSymB | `[plasmid-name=pSymA]` / `[plasmid-name=pSymB]` |
+| accessory plasmids | final accessory set (Step 6) | `[plasmid-name=p<strain><a,b,…>]`, letters by decreasing length |
+| unplaced | `<replicon>_fragment` tags and Step 4b review contigs | no location / name |
+
+All sequences get `[topology=circular|linear]` (Flye); circular chromosome and plasmids also get
+`[completeness=complete]`. Everything else (debris, IS circles, contigs not retained) goes to
+`<sample>.removed.fasta`, each with its reason. An optional curation table (`--curation`: sample, contig,
+action `keep|drop`, name, note) overrides any decision. `keep` with a name starting with `p` makes a named
+plasmid, `keep` without a name an unplaced contig.
+
+Circular replicons are re-oriented. The chromosome starts at *dnaA* (dnaapler `chromosome`). pSymA, pSymB and
+the accessory plasmids start at the RepA of their RepABC operon, found with the RepABC HMMs (Step 4b): the
+RepA of a complete operon, else the best-scoring RepA, reverse-complemented when on the minus strand.
+dnaapler's own RepA database finds none of these RepABC-type RepA proteins. A custom RepA database is not
+used either, because dnaapler requires the hit to cover the first residue of the reference protein, and the
+chromosome carries ParA-like RepA paralogs. Linear contigs, unplaced contigs and plasmids without RepA keep
+their assembled orientation.
+
+`clean_genomes_summary.tsv` has one row per strain: replicon sizes, accessory plasmids (circular), unplaced
+and removed contigs, total size and notes (missing or linear replicons; no pSymB with a > 5 Mb chromosome =
+possible chromosome–pSymB fusion, e.g. AVT35, AVT110, TG70: the fused molecule is kept whole as the
+chromosome). `<sample>.clean.tsv` gives the role and reason of every contig, and `<sample>.rotation.tsv`
+the re-orientation applied.
 
 ### 7. RepABC operons and replicon groups (`repabc_operons.py`, `mmseqs easy-cluster`)
 
@@ -592,6 +625,7 @@ Output: `results/14_cointegrates/`
 | `--mobmess_max_len`   | `1000000` | MobMess clusters are kept only if all members are shorter (bp) |
 | `--repabc_hmms`       | `assets/repabc_hmms.hmm` | RepABC HMMs for the contig markers (Step 4b) |
 | `--review_genomad_score` | `0.9` | Step 4b review B: geNomad plasmid calls without hallmark genes count as a marker from this score |
+| `--curation`          | -         | Step 6b: per-strain overrides (sample, contig, action keep/drop, name, note) |
 | `--bakta_db`          | required  | Bakta database directory (`bakta_db download --type full`) |
 | `--mobsuite_db`       | required  | MOB-suite database directory (`mob_init -d <dir>`) |
 | `--feature_exclude`   | -         | IDs to exclude after manual curation          |
@@ -643,7 +677,7 @@ Output: `results/14_cointegrates/`
 - matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
 - pyhmmer 0.12.0 and pyrodigal 3.7.1 (RepABC contig markers, TASer-like TA search); RepABC HMMs from TIGRFAMs 15.0 and Pfam 35.0; DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
   run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast and SignalP 4.1g (optional, licensed, environment modules)
-- minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12; skani 0.3.2
+- dnaapler 1.3.0 (MMseqs2 18.8cc5c; clean genomes); minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12; skani 0.3.2
 - eggNOG-mapper 2.1.13 (MMseqs2 16.747c6, DIAMOND 2.0.15); Panaroo 1.6.0 (CD-HIT 4.8.1, MAFFT 7.526); scikit-learn 1.7.1; statsmodels 0.14.6
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2

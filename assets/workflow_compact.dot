@@ -22,6 +22,7 @@ digraph AccPlasPipelineCompact {
         label="Accessory plasmids"; style="rounded,filled"; fillcolor="#e9f6ec"; color="#9ccfa8";
         s6  [label="6 · Plasmid markers\nBakta · MOB-typer"];
         fin [shape=note, fillcolor="#d6f0dc", penwidth=1.5, label="Accessory\nplasmids"];
+        cg  [label="6b · Clean genomes\nNCBI-ready"];
     }
 
     subgraph cluster_C {
@@ -45,6 +46,7 @@ digraph AccPlasPipelineCompact {
     s4 -> s6;
     s2 -> s6 [style=dashed];
     s6 -> fin;
+    fin -> cg;
     fin -> typ;
     fin -> ann;
     fin -> rep;
