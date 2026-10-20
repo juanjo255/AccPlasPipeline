@@ -24,8 +24,10 @@ not well established):
                  structural gene names (terminase, capsid, portal, tail, baseplate, holin ...)
 Class (first match):
   phage-plasmid               replication + phage
-  plasmid (parent not in dataset)  replication, no other sequence covers >= 80% of the region
-  plasmid (second parent in dataset)  replication, another sequence covers >= 80% of the region
+  plasmid-derived (second parent absent)   replication, no other sequence covers >= 80% of the region:
+                              the region likely came from a second plasmid that is not in the dataset
+                              (the first parent, the backbone, always is)
+  plasmid-derived (second parent present)  replication, another sequence covers >= 80% of the region
   phage                       provirus covering >= 50% of the provirus, or >= 2 phage structural genes
   ICE-like                    integrase + relaxase + MPF
   IME-like                    integrase + relaxase
@@ -59,10 +61,10 @@ TRANSPOSASE = re.compile(r"transposase|insertion (sequence|element)|\bIS\d", re.
 PHAGE = re.compile(r"terminase|capsid|portal protein|tail (fiber|fibre|tube|sheath|tape|assembly|protein)|"
                    r"baseplate|prohead|head-tail|head (morphogenesis|decoration|completion)|holin|virion", re.I)
 MOBILE = re.compile(r"transposase|resolvase|integrase|recombinase|insertion element|\bTn3\b", re.I)
-CLASSES = ["phage-plasmid", "plasmid (parent not in dataset)", "plasmid (second parent in dataset)", "phage", "ICE-like", "IME-like",
+CLASSES = ["phage-plasmid", "plasmid-derived (second parent absent)", "plasmid-derived (second parent present)", "phage", "ICE-like", "IME-like",
            "integrative element", "MOB/MPF module", "transposon acquisition", "other"]
-COLORS = {"parent": "#BBBBBB", "phage-plasmid": "#8c564b", "plasmid (parent not in dataset)": "#D55E00",
-          "plasmid (second parent in dataset)": "#f0a070", "phage": "#9467bd", "ICE-like": "#0072B2", "IME-like": "#56B4E9", "integrative element": "#009E73",
+COLORS = {"parent": "#BBBBBB", "phage-plasmid": "#8c564b", "plasmid-derived (second parent absent)": "#D55E00",
+          "plasmid-derived (second parent present)": "#f0a070", "phage": "#9467bd", "ICE-like": "#0072B2", "IME-like": "#56B4E9", "integrative element": "#009E73",
           "MOB/MPF module": "#CC79A7", "transposon acquisition": "#E69F00", "other": "#e0e0e0"}
 
 
@@ -334,7 +336,7 @@ def main():
             if hit["replication"] and phage:
                 cls = "phage-plasmid"
             elif hit["replication"]:
-                cls = "plasmid (second parent in dataset)" if in_data else "plasmid (parent not in dataset)"
+                cls = "plasmid-derived (second parent present)" if in_data else "plasmid-derived (second parent absent)"
             elif phage:
                 cls = "phage"
             elif integ and hit["relaxase"] and hit["MPF"]:

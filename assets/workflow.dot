@@ -69,8 +69,9 @@ digraph AccPlasPipeline {
     }
 
     subgraph cluster_F {
-        label=<<b>F · Plasmid partners and cointegrates (14)</b>>; style="rounded,filled,dashed"; fillcolor="#fbeaea"; color="#d9a0a0";
-        s14 [style="rounded,filled,dashed", label=<<b>14 · Plasmid partners + cointegrates</b><br/>MobMess alignment blocks (Step 4 run)<br/>junction genes from Bakta · under revision>];
+        label=<<b>F · Compound plasmids (14)</b>>; style="rounded,filled"; fillcolor="#fbeaea"; color="#d9a0a0";
+        s14 [label=<<b>14 · Compound vs parent plasmids</b><br/>parents: plasmid backbones (MobMess Step 4 blocks)<br/>cointegrates · extra sequence not in the parent>];
+        s14c [label=<<b>Extra-sequence classes</b><br/>plasmid-derived (2nd parent absent / present) · phage(-plasmid)<br/>ICE-like · IME-like · integrative · MOB/MPF · transposon<br/>hints: RepABC HMM · MOB-typer · geNomad · Bakta>];
     }
 
     // Inputs
@@ -136,7 +137,11 @@ digraph AccPlasPipeline {
     sp4 -> spf;
     cz -> spf [style=dashed, label="CAZymes"];
 
-    // F: cointegrates
-    s4 -> s14 [style=dashed];
-    s10 -> s14 [style=dashed];
+    // F: compound plasmids
+    s4 -> s14;
+    s10 -> s14 [style=dashed, label="Bakta"];
+    s4b -> s14 [style=dashed, label="RepABC"];
+    s6a -> s14 [style=dashed, label="MOB-typer"];
+    s2 -> s14 [style=dashed, label="geNomad"];
+    s14 -> s14c;
 }

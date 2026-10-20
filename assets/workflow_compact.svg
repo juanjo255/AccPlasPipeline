@@ -244,15 +244,15 @@
 <!-- coi -->
 <g id="node17" class="node">
 <title>coi</title>
-<path fill="white" stroke="#555555" stroke-dasharray="5,2" d="M816,-284C816,-284 725,-284 725,-284 719,-284 713,-278 713,-272 713,-272 713,-260 713,-260 713,-254 719,-248 725,-248 725,-248 816,-248 816,-248 822,-248 828,-254 828,-260 828,-260 828,-272 828,-272 828,-278 822,-284 816,-284"/>
-<text text-anchor="middle" x="770.5" y="-269.2" font-family="DejaVu Sans" font-size="11.00">14 · Cointegrates</text>
-<text text-anchor="middle" x="770.5" y="-257.2" font-family="DejaVu Sans" font-size="11.00">(under revision)</text>
+<path fill="white" stroke="#555555" d="M861.5,-284C861.5,-284 679.5,-284 679.5,-284 673.5,-284 667.5,-278 667.5,-272 667.5,-272 667.5,-260 667.5,-260 667.5,-254 673.5,-248 679.5,-248 679.5,-248 861.5,-248 861.5,-248 867.5,-248 873.5,-254 873.5,-260 873.5,-260 873.5,-272 873.5,-272 873.5,-278 867.5,-284 861.5,-284"/>
+<text text-anchor="middle" x="770.5" y="-269.2" font-family="DejaVu Sans" font-size="11.00">14 · Compound plasmids</text>
+<text text-anchor="middle" x="770.5" y="-257.2" font-family="DejaVu Sans" font-size="11.00">cointegrates · acquired sequence</text>
 </g>
 <!-- fin&#45;&gt;coi -->
 <g id="edge18" class="edge">
 <title>fin&#45;&gt;coi</title>
-<path fill="none" stroke="#666666" stroke-dasharray="5,2" d="M596.79,-386.75C603.55,-362.08 619.13,-318.49 649,-295 665.47,-282.05 686.85,-274.75 707.02,-270.69"/>
-<polygon fill="#666666" stroke="#666666" points="707.44,-272.75 712.95,-269.58 706.67,-268.62 707.44,-272.75"/>
+<path fill="none" stroke="#666666" d="M596.79,-386.75C603.55,-362.08 619.13,-318.49 649,-295 653.07,-291.8 657.45,-288.94 662.03,-286.39"/>
+<polygon fill="#666666" stroke="#666666" points="663.14,-288.18 667.49,-283.54 661.2,-284.46 663.14,-288.18"/>
 </g>
 </g>
 </svg>

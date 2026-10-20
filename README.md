@@ -575,9 +575,11 @@ the compound is taken from MobMess's alignment blocks (`*_ani_blocks.txt`). It i
 
 Each region gets the first matching class:
 1. **phage-plasmid**: replication + phage.
-2. **plasmid (parent not in dataset)**: replication, and no other MobMess sequence covers >= 80% of the region.
-   A plasmid whose own parent is missing from the data.
-3. **plasmid (second parent in dataset)**: replication, and another sequence covers >= 80% of the region.
+2. **plasmid-derived (second parent absent)**: replication, and no other MobMess sequence covers >= 80% of the
+   region. The first parent (the backbone) is in the dataset; the Rep-carrying region most likely came from a second
+   plasmid that is not (not sampled, or no longer free).
+3. **plasmid-derived (second parent present)**: replication, and another sequence covers >= 80% of the region (the
+   probable second parent). When both parents are backbones that together make up the compound, it is a cointegrate.
 4. **phage**: a provirus, or >= 2 phage structural genes.
 5. **ICE-like**: integrase + relaxase + MPF.
 6. **IME-like**: integrase + relaxase.
@@ -595,7 +597,7 @@ and they carry 50 extra regions:
 | class | regions | clusters | median size | source in dataset |
 |---|---|---|---|---|
 | integrative element | 24 | 9 | 25 kb | 14 |
-| plasmid (parent not in dataset) | 14 | 9 | 59 kb | 0 |
+| plasmid-derived (second parent absent) | 14 | 9 | 59 kb | 0 |
 | MOB/MPF module | 11 | 5 | 26 kb | 8 |
 | ICE-like | 1 | 1 | 15 kb | 0 |
 
@@ -604,6 +606,8 @@ and they carry 50 extra regions:
 - The Fig. S5A plasmid (bc2012, cluster 235) carries a 79 kb region not in its PS23 parent. It is an integrative
   element: integrase at its end; transposases (IS4, IS630, ISRm11) and group II introns inside; no relaxase, MPF or
   phage genes detected by MOB-typer, geNomad or Bakta.
+- The 14 plasmid-derived regions carry RepC (RepABC HMM and Bakta) or a MOB-typer replicon, and no sequence in the
+  data covers more than 59% of any of them: plasmids whose second parent was not sampled.
 - The 26 kb MOB/MPF regions of cluster 271 are 98% contained in the cluster 380 plasmid: a mobilization module
   acquired from a plasmid present in the dataset.
 

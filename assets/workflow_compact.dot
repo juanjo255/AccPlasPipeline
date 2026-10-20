@@ -32,7 +32,7 @@ digraph AccPlasPipelineCompact {
         rep [label="11 · Copy number\n3-mer composition"];
         ani [label="12 · Pairwise ANI\nskani"];
         gc  [label="13 · Gene content\nCOG · gene sharing · signal peptides"];
-        coi [style="rounded,filled,dashed", label="14 · Cointegrates\n(under revision)"];
+        coi [label="14 · Compound plasmids\ncointegrates · acquired sequence"];
     }
 
     in -> s1;
@@ -52,5 +52,5 @@ digraph AccPlasPipelineCompact {
     fin -> rep;
     fin -> ani;
     fin -> gc;
-    fin -> coi [style=dashed];
+    fin -> coi;
 }
