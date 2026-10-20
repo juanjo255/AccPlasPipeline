@@ -32,7 +32,7 @@ Both are generated with Graphviz from `assets/workflow_compact.dot` and `assets/
   - [11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)](#11-replicon-tags-copy-number-and-3-mer-composition-minimap2-samtools-kmertools)
   - [12. Pairwise ANI between accessory plasmids (`skani dist`)](#12-pairwise-ani-between-accessory-plasmids-skani-dist)
   - [13. Gene content (`eggnog-mapper`, `panaroo`, SignalP 4.1)](#13-gene-content-eggnog-mapper-panaroo-signalp-41)
-  - [14. Plasmid partners and cointegrates (`cointegrates.py`)](#14-plasmid-partners-and-cointegrates-cointegratespy)
+  - [14. Compound plasmids: cointegrates and acquired sequence (`cointegrates.py`)](#14-compound-plasmids-cointegrates-and-acquired-sequence-cointegratespy)
 - [Parameters](#parameters)
 - [Software](#software)
 
@@ -549,61 +549,71 @@ Output (`results/13_gene_content/`): `signalp4/` (`signalp4.summary`, `.mature.f
 `panaroo_plasmids/`, `signal_peptides/`: `signal_peptide_proteins.tsv`, `signal_peptide_families.tsv`,
 `signal_peptide_summary.tsv`, figure `signal_peptide_families`
 
-### 14. Plasmid partners and cointegrates (`cointegrates.py`)
+### 14. Compound plasmids: cointegrates and acquired sequence (`cointegrates.py`)
 
 Needs the Step 10 annotation. Uses the **first MobMess run (Step 4)**, whose cluster IDs are the ones in the
-publication, restricted to the final accessory plasmids. MobMess lists, per system, every plasmid that contains the
-system's backbone (`*_systems.txt`, `compound_plasmids`; a plasmid can be the backbone of its own system and contain
-another). For each such pair, the circular backbone member covering most of the accessory plasmid is taken from
-MobMess's own alignment blocks (`*_ani_blocks.txt`).
+publication, restricted to the final accessory plasmids. For every plasmid in a MobMess **compound** cluster, the
+**parents** are the plasmid backbones of its systems. For each system, the circular backbone member covering most of
+the compound is taken from MobMess's alignment blocks (`*_ani_blocks.txt`). It is kept as a parent when it is
+>= `--partner_min_len` (20 kb) and its covered region carries a replication gene. Backbones that are not plasmids
+(the ~3 kb IS circles and NRPS-derived contigs of many systems) are listed but not used as parents.
 
-Only **plasmid partners** are kept: backbone ≥ `--partner_min_len` (20 kb) with a Rep gene in the region it covers.
-This leaves out the other two kinds of MobMess backbones found in accessory plasmids: ~3 kb insertion sequences
-(PS3 ISRm17, PS15 IS66, PS12 IS30; 203 plasmids) and NRPS-derived contigs (PS16–PS19 and PS28, a solanimycin-like
-SolG NRPS region shared by ~100 plasmids).
+- **Cointegrate**: two parents from different systems that each cover >= `--cointegrate_min_part` (0.2) of the
+  compound, overlap by <= `--cointegrate_max_overlap` (0.2) and together cover >= `--cointegrate_min_union` (0.8).
+  The mobile-element genes within `--junction_window` (5 kb) of the junctions are listed.
+- **Extra sequence**: every region >= `--segment_min_bp` (5 kb) not present in any parent. Its content is read from
+  several sources and reported as hints, since ICE / IME / phage annotations are not well established:
 
-For each accessory plasmid with a plasmid partner:
-- **Cointegrate**: two plasmid partners from different systems that each cover ≥ `--cointegrate_min_part` (0.2) of
-  the plasmid, overlap by ≤ `--cointegrate_max_overlap` (0.2 of the smaller covered length), and together cover
-  ≥ `--cointegrate_min_union` (0.8). Junctions (overlap between the two backbones and the ends of their aligned
-  segments) are reported with the Bakta genes within `--junction_window` (5 kb), mobile-element genes flagged
-  (Tn3 / transposase / resolvase / integrase / recombinase).
-- **Extra segments**: every region ≥ `--segment_min_bp` (5 kb) not covered by the plasmid partner(s), i.e. candidate
-  integrations of another plasmid or MGE. Reported with the genes inside (Rep, Par, integrase/recombinase,
-  relaxase/mobilization, conjugation, transposase), the mobile-element genes at its ends, and the best match among
-  the other MobMess sequences (largest share of the segment aligned; same-cluster sequences and sequences containing
-  the whole plasmid skipped; a plasmid carrying the same segment, not necessarily its source). Class (first match):
-  *plasmid-derived* (Rep inside) > *integrative/mobilizable* (integrase/recombinase or relaxase inside) >
-  *transposon-bounded* (mobile genes at an end) > *other*.
+| hint | sources |
+|---|---|
+| replication | RepABC HMM genes (Step 4b), MOB-typer replicon hits, Bakta replication genes |
+| relaxase / mobilization | MOB-typer relaxase / oriT, geNomad CONJscan `MOB*`, Bakta relaxase / mobilization names |
+| MPF / T4SS | MOB-typer mate-pair formation, geNomad CONJscan T4SS genes (`T_virB*`, `F_tra*`, …), Bakta conjugation names |
+| integrase | Bakta integrase / site-specific recombinase, inside the region or at an end (Tn3 resolvases excluded) |
+| transposase | Bakta transposase / IS / resolvase names, inside or at an end |
+| phage | geNomad proviruses (>= 50% inside the region), geNomad virus hallmark genes, Bakta virion gene names (terminase, capsid, portal, tail, baseplate, holin) |
 
-On the publication's MobMess output, 136 accessory plasmids (30 clusters) contain a plasmid partner and carry 294
-extra segments (median 68 kb of extra sequence per plasmid):
+Each region gets the first matching class:
+1. **phage-plasmid**: replication + phage.
+2. **plasmid (parent not in dataset)**: replication, and no other MobMess sequence covers >= 80% of the region.
+   A plasmid whose own parent is missing from the data.
+3. **plasmid (second parent in dataset)**: replication, and another sequence covers >= 80% of the region.
+4. **phage**: a provirus, or >= 2 phage structural genes.
+5. **ICE-like**: integrase + relaxase + MPF.
+6. **IME-like**: integrase + relaxase.
+7. **integrative element**: integrase, no relaxase found.
+8. **MOB/MPF module**: relaxase and/or MPF without integrase.
+9. **transposon acquisition**: transposase inside or at an end.
+10. **other**.
 
-| class | segments | plasmids | median size |
-|---|---|---|---|
-| transposon-bounded | 98 | 75 | 14 kb |
-| integrative/mobilizable | 82 | 75 | 57 kb |
-| plasmid-derived | 57 | 45 | 52 kb |
-| other | 57 | 52 | 18 kb |
+The best match among the other MobMess sequences (same cluster and sequences containing the whole plasmid skipped)
+and `source_in_dataset` (>= 80% of the region) show whether the extra sequence exists elsewhere in the data.
 
-236 of the 294 segments are ≥ 80% aligned to another sequence, i.e. shared with other plasmids.
+On the publication's MobMess output, 44 of the 169 compound accessory plasmids (24 clusters) have a plasmid parent,
+and they carry 50 extra regions:
 
-Validation against the publication:
-- Only cluster 381 (both members) is a cointegrate, unchanged over a threshold grid (part ≥ 0.15–0.3,
-  overlap ≤ 0.1–0.3, union ≥ 0.8–0.9). Its plasmid partners (clusters 364 and 380) cover 174 kb and 150 kb of the
-  315 kb plasmid, and the junction genes include the four Tn3 genes of the publication's clinker figure (Fig. 5B).
-- The Fig. S5A plasmid (bc2012, cluster 235) contains the ~73 kb PS23 backbone plus a 79 kb extra segment with an
-  integrase and a Tn3 family transposase at its end and no Rep protein inside; the same 79 kb segment is fully
-  present in the cluster 410 plasmids.
+| class | regions | clusters | median size | source in dataset |
+|---|---|---|---|---|
+| integrative element | 24 | 9 | 25 kb | 14 |
+| plasmid (parent not in dataset) | 14 | 9 | 59 kb | 0 |
+| MOB/MPF module | 11 | 5 | 26 kb | 8 |
+| ICE-like | 1 | 1 | 15 kb | 0 |
+
+- Cluster 381 (both members) is the only cointegrate. Its parents are clusters 364 and 380, and the junction genes
+  include the four Tn3 genes of the publication's clinker figure (Fig. 5B).
+- The Fig. S5A plasmid (bc2012, cluster 235) carries a 79 kb region not in its PS23 parent. It is an integrative
+  element: integrase at its end; transposases (IS4, IS630, ISRm11) and group II introns inside; no relaxase, MPF or
+  phage genes detected by MOB-typer, geNomad or Bakta.
+- The 26 kb MOB/MPF regions of cluster 271 are 98% contained in the cluster 380 plasmid: a mobilization module
+  acquired from a plasmid present in the dataset.
 
 Output: `results/14_cointegrates/`
-- `plasmid_partners.tsv`: accessory plasmid, plasmid partner system / backbone cluster / backbone sequence, covered
-  bp and fractions
-- `extra_segments.tsv`: coordinates, size, class, gene counts, mobile genes at the ends, best match
-- `cointegrates.tsv`: both partners, covered kb and fractions, overlap, union, junctions, mobile genes at the junctions
-- `integration_summary.tsv`: one row per plasmid (partners, extra bp, segments per class, cointegrate)
-- `cointegrate_junction_genes.tsv`: mobile genes at cointegrate junctions and segment ends
-- figure `integration_map`: one bar per plasmid, partner-covered sequence in grey and extra segments coloured by class
+- `compound_parents.tsv`: every compound, its plasmid parents and non-plasmid backbones
+- `extra_segments.tsv`: region coordinates, size, class, the hints of each kind with their source, best match
+- `cointegrates.tsv`: both parents, covered kb and fractions, overlap, union, junctions, mobile genes at the junctions
+- `integration_summary.tsv`: one row per compound with a parent (regions per class, cointegrate)
+- `cointegrate_junction_genes.tsv`: mobile-element genes at the cointegrate junctions and region ends
+- figure `integration_map`: one bar per compound, parent-covered sequence in grey and extra regions coloured by class
 
 ## Parameters
 
@@ -655,11 +665,11 @@ Output: `results/14_cointegrates/`
 | `--gene_sharing`      | `false`   | run Panaroo gene sharing (needs `--reference_genome` and samplesheet `gff`) |
 | `--signalp4_module`   | -         | environment module providing `signalp4` (Stowers: `spada/1.0`); enables Step 13C |
 | `--signalp_top`       | `15`      | signal-peptide families plotted               |
-| `--partner_min_len`   | `20000`   | plasmid partner: minimum backbone length (and a Rep gene in the covered region) |
+| `--partner_min_len`   | `20000`   | Step 14 parent: minimum backbone length (and a replication gene in the covered region) |
 | `--cointegrate_min_part` | `0.2`  | cointegrate: each plasmid partner covers ≥ this fraction of the plasmid |
 | `--cointegrate_max_overlap` | `0.2` | cointegrate: partners overlap ≤ this fraction of the smaller one |
 | `--cointegrate_min_union` | `0.8` | cointegrate: partners together cover ≥ this fraction |
-| `--segment_min_bp`    | `5000`    | minimum extra segment reported (bp) |
+| `--segment_min_bp`    | `5000`    | Step 14: minimum extra region not present in the parents (bp) |
 | `--junction_window`   | `5000`    | genes within this distance of a junction / segment end are reported |
 
 \* unless `--skip_annotation`.

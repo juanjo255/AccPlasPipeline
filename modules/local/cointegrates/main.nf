@@ -1,8 +1,9 @@
 /*
- * Accessory plasmids that contain another plasmid backbone (MobMess containment, Step 4
- * run, whose cluster IDs are the ones in the publication): cointegrates (two complementary
- * plasmid backbones) and the extra segments outside the plasmid partner(s), characterized
- * by gene content, mobile genes at their ends and best match (bin/cointegrates.py).
+ * Compound plasmids vs their parent plasmid backbones (MobMess Step 4 run, whose cluster IDs are
+ * the ones in the publication): cointegrates (two complementary parents) and the extra sequence
+ * not present in the parent, classified from RepABC HMM, MOB-typer, geNomad and Bakta hints as
+ * plasmid / phage / ICE-like / IME-like / integrative element / MOB-MPF module / transposon
+ * (bin/cointegrates.py).
  */
 process COINTEGRATES {
     tag "all"
@@ -16,10 +17,14 @@ process COINTEGRATES {
     path ani_blocks
     path plasmid_ids
     path annotation
+    path repabc       , stageAs: 'repabc/*'
+    path mob_biomarker
+    path genomad_genes, stageAs: 'genomad_genes/*'
+    path genomad_virus, stageAs: 'genomad_virus/*'
 
     output:
     path "cointegrates.tsv"              , emit: cointegrates
-    path "plasmid_partners.tsv"          , emit: partners
+    path "compound_parents.tsv"          , emit: parents
     path "extra_segments.tsv"            , emit: segments
     path "integration_summary.tsv"       , emit: summary
     path "cointegrate_junction_genes.tsv", emit: genes
@@ -35,6 +40,10 @@ process COINTEGRATES {
         --blocks ${ani_blocks} \\
         --plasmids ${plasmid_ids} \\
         --annotation ${annotation} \\
+        --repabc repabc/* \\
+        --mob-biomarker ${mob_biomarker} \\
+        --genomad-genes genomad_genes/* \\
+        --genomad-virus genomad_virus/* \\
         --min-partner-len ${params.partner_min_len} \\
         --min-part ${params.cointegrate_min_part} \\
         --max-overlap ${params.cointegrate_max_overlap} \\
@@ -52,7 +61,7 @@ process COINTEGRATES {
 
     stub:
     """
-    touch cointegrates.tsv plasmid_partners.tsv extra_segments.tsv integration_summary.tsv \\
+    touch cointegrates.tsv compound_parents.tsv extra_segments.tsv integration_summary.tsv \\
         cointegrate_junction_genes.tsv integration_map.png integration_map.svg
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

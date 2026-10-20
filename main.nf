@@ -516,7 +516,11 @@ workflow {
             MOBMESS_SYSTEMS.out.systems,
             MOBMESS_SYSTEMS.out.ani_blocks,
             PLASMID_FEATURES.out.ids,
-            MERGE_ANNOTATIONS.out.tsv
+            MERGE_ANNOTATIONS.out.tsv,
+            REPABC_HMM.out.genes.map { _meta, f -> f }.collect(),
+            MOB_TYPER.out.biomarker,
+            GENOMAD_ENDTOEND.out.plasmid_genes.map { _meta, f -> f }.collect(),
+            GENOMAD_ENDTOEND.out.virus_summary.map { _meta, f -> f }.collect()
         )
     }
 }

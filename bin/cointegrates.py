@@ -1,35 +1,44 @@
 #!/usr/bin/env python3
 """
-Accessory plasmids that contain another plasmid backbone, and what else they carry.
+Compound plasmids: what do they carry that their parent plasmid does not?
 
-MobMess lists, for each system, the plasmids that contain its backbone
-(<prefix>_systems.txt, compound_plasmids). Many of these backbones are ~3 kb insertion
-sequences or NRPS-derived contigs; here only PLASMID partners are kept: the circular
-backbone member covering most of the accessory plasmid (MobMess alignment blocks,
-<prefix>_ani_blocks.txt) is >= --min-partner-len and the region it covers carries a
-replication (Rep) gene. Everything of the accessory plasmid outside its plasmid
-partner(s) is an extra segment: candidate integration of another plasmid or MGE.
+For every accessory plasmid in a MobMess *compound* cluster (Step 4 run, whose cluster IDs are
+the ones in the publication), the parents are the plasmid backbones of its systems: for each
+system, the circular backbone member covering most of the compound (MobMess alignment blocks),
+kept as a parent when it is >= --min-partner-len and its covered region carries a replication
+gene. Backbones that are not plasmids (~3 kb IS circles, NRPS-derived contigs) are reported but
+not used as parents.
 
-The publication found the cluster 381 cointegrate (Fig. 5B) by inspecting the MobMess
-systems and the Fig. S5A plasmid (a ~73 kb plasmid plus another MGE) with clinker; this
-makes both searches systematic.
+Cointegrate: two parents from different systems that each cover >= --min-part of the compound,
+overlap by <= --max-overlap (of the smaller covered length) and together cover >= --min-union.
 
-Per accessory plasmid with a plasmid partner:
-  - cointegrate: two plasmid partners from different systems that each cover >= --min-part,
-    overlap by <= --max-overlap (of the smaller covered length) and together cover
-    >= --min-union of the plasmid. Junctions (backbone overlap and segment ends) are
-    reported with the genes within --window bp.
-  - extra segments (>= --min-segment bp, not covered by any plasmid partner): genes
-    inside (Rep, Par, integrase/recombinase, relaxase/mobilization, conjugation,
-    transposase), mobile-element genes within --window bp of each end, and the best
-    match among the other MobMess sequences (largest share of the segment aligned;
-    sequences of the same MobMess cluster and sequences that contain the whole plasmid are
-    skipped): another plasmid carrying the same segment, not necessarily its source. Class, first match: plasmid-derived (Rep inside) > integrative/mobilizable
-    (integrase/recombinase or relaxase inside) > transposon-bounded (mobile genes at an end)
-    > other.
+Extra sequence: every region >= --min-segment bp not covered by any parent (circular-aware). Its
+content is read from several sources, all reported as hints (ICE / IME / phage annotations are
+not well established):
+  replication    RepABC HMM genes (Step 4b), MOB-typer replicon hits, Bakta replication genes
+  relaxase       MOB-typer relaxase, geNomad CONJscan MOB*, Bakta relaxase / mobilization names
+  MPF / T4SS     MOB-typer mate-pair-formation, geNomad CONJscan T4SS genes, Bakta conjugation names
+  integrase      Bakta integrase / site-specific recombinase names (not Tn3 resolvases)
+  transposase    Bakta transposase / IS names
+  phage          geNomad proviruses overlapping the region, geNomad virus hallmark genes, Bakta phage
+                 structural gene names (terminase, capsid, portal, tail, baseplate, holin ...)
+Class (first match):
+  phage-plasmid               replication + phage
+  plasmid (parent not in dataset)  replication, no other sequence covers >= 80% of the region
+  plasmid (second parent in dataset)  replication, another sequence covers >= 80% of the region
+  phage                       provirus covering >= 50% of the provirus, or >= 2 phage structural genes
+  ICE-like                    integrase + relaxase + MPF
+  IME-like                    integrase + relaxase
+  integrative element         integrase inside or at an end, no relaxase found
+  MOB/MPF module              relaxase and/or MPF without integrase
+  transposon acquisition      transposase inside or at an end
+  other
+The best match among the other MobMess sequences (largest share of the region aligned; same
+cluster and sequences containing the whole plasmid skipped) shows whether the extra sequence
+exists elsewhere in the data.
 
-Outputs: plasmid_partners.tsv, extra_segments.tsv, cointegrates.tsv,
-         integration_summary.tsv, cointegrate_junction_genes.tsv, integration_map.png/.svg
+Outputs: compound_parents.tsv, extra_segments.tsv, cointegrates.tsv, integration_summary.tsv,
+         cointegrate_junction_genes.tsv, integration_map.png/.svg
 """
 import argparse
 import csv
@@ -40,16 +49,21 @@ import sys
 from collections import defaultdict
 
 csv.field_size_limit(sys.maxsize)
-MOBILE = re.compile(r"transposase|resolvase|integrase|recombinase|insertion element|\bTn3\b", re.I)
 REPLICATION = re.compile(r"replication|\brep[ABC]\b", re.I)
-PARTITION = re.compile(r"partition|\bpar[AB]\b", re.I)
-INTEGRASE = re.compile(r"integrase|recombinase", re.I)
-RELAXASE = re.compile(r"relaxase|mobilization", re.I)
-CONJUGATION = re.compile(r"type IV secret|conjuga|\bTra[A-Z]\b|\bTrb[A-Z]\b|\bVirB", re.I)
-TRANSPOSASE = re.compile(r"transposase|insertion element", re.I)
-CLASSES = ["plasmid-derived", "integrative/mobilizable", "transposon-bounded", "other"]
-COLORS = {"partner": "#BBBBBB", "plasmid-derived": "#D55E00", "integrative/mobilizable": "#0072B2",
-          "transposon-bounded": "#E69F00", "other": "#56B4E9"}
+RELAXASE = re.compile(r"relaxase|mobilization|\bmob[A-Z]\b", re.I)
+MPF = re.compile(r"type IV secret|conjugal|conjugative transfer|\bTra[A-Z]\b|\bTrb[A-Z]\b|\bVirB\d*", re.I)
+INTEGRASE = re.compile(r"integrase|site-specific (DNA )?recombinase|recombinase", re.I)
+RESOLVASE = re.compile(r"resolvase|Tn3", re.I)
+TRANSPOSASE = re.compile(r"transposase|insertion (sequence|element)|\bIS\d", re.I)
+# Phage structural / virion genes only ('phage shock protein', 'anti-phage' or 'phage integrase' are not phages)
+PHAGE = re.compile(r"terminase|capsid|portal protein|tail (fiber|fibre|tube|sheath|tape|assembly|protein)|"
+                   r"baseplate|prohead|head-tail|head (morphogenesis|decoration|completion)|holin|virion", re.I)
+MOBILE = re.compile(r"transposase|resolvase|integrase|recombinase|insertion element|\bTn3\b", re.I)
+CLASSES = ["phage-plasmid", "plasmid (parent not in dataset)", "plasmid (second parent in dataset)", "phage", "ICE-like", "IME-like",
+           "integrative element", "MOB/MPF module", "transposon acquisition", "other"]
+COLORS = {"parent": "#BBBBBB", "phage-plasmid": "#8c564b", "plasmid (parent not in dataset)": "#D55E00",
+          "plasmid (second parent in dataset)": "#f0a070", "phage": "#9467bd", "ICE-like": "#0072B2", "IME-like": "#56B4E9", "integrative element": "#009E73",
+          "MOB/MPF module": "#CC79A7", "transposon acquisition": "#E69F00", "other": "#e0e0e0"}
 
 
 def parse_args():
@@ -59,12 +73,16 @@ def parse_args():
     p.add_argument("--blocks", required=True, help="MobMess <prefix>_ani_blocks.txt")
     p.add_argument("--plasmids", required=True, help="accessory plasmid IDs (one per line)")
     p.add_argument("--annotation", required=True, help="Bakta TSV of the accessory plasmids")
-    p.add_argument("--min-partner-len", type=int, default=20000, help="plasmid partner: minimum backbone length")
+    p.add_argument("--repabc", nargs="*", default=[], help="RepABC HMM genes (Step 4b, Bakta layout)")
+    p.add_argument("--mob-biomarker", nargs="*", default=[], help="MOB-typer *_mobtyper_biomarker.tsv")
+    p.add_argument("--genomad-genes", nargs="*", default=[], help="geNomad *_plasmid_genes.tsv")
+    p.add_argument("--genomad-virus", nargs="*", default=[], help="geNomad *_virus_summary.tsv (proviruses)")
+    p.add_argument("--min-partner-len", type=int, default=20000, help="parent: minimum backbone length")
     p.add_argument("--min-part", type=float, default=0.2)
     p.add_argument("--max-overlap", type=float, default=0.2)
     p.add_argument("--min-union", type=float, default=0.8)
-    p.add_argument("--min-segment", type=int, default=5000, help="minimum extra segment length (bp)")
-    p.add_argument("--window", type=int, default=5000)
+    p.add_argument("--min-segment", type=int, default=5000, help="minimum extra region (bp)")
+    p.add_argument("--window", type=int, default=5000, help="genes within this distance of a region end")
     return p.parse_args()
 
 
@@ -110,12 +128,23 @@ def gaps(iv, xl, circular):
 
 
 def unwrap(a, e, xl):
-    """Segment that may cross the origin -> list of plain intervals."""
     return [[a, min(e, xl)]] + ([[1, e - xl]] if e > xl else [])
+
+
+def inside(s, t, region, frac=0.5):
+    """Feature [s, t] has >= frac of its length inside the region intervals."""
+    return sum(max(0, min(t, e) - max(s, a) + 1) for a, e in region) >= frac * (t - s + 1)
 
 
 def is_circular(row):
     return row.get("circular") in ("1", "True", "true")
+
+
+def read_tsv(paths):
+    for path in paths:
+        with open(path, newline="") as fh:
+            yield from csv.DictReader((l for l in fh if not l.startswith("#") or l.startswith("#Sequence")),
+                                      delimiter="\t")
 
 
 def main():
@@ -126,22 +155,14 @@ def main():
         clusters = {r["contig"]: r for r in csv.DictReader(fh, delimiter="\t")}
     with open(args.systems) as fh:
         systems = {r["system_name"]: r for r in csv.DictReader(fh, delimiter="\t")}
+    compounds = [c for c, r in clusters.items() if c in acc and r["cluster_type"] == "compound" and r.get("systems")]
+    X = set(compounds)
 
-    # accessory plasmid -> systems whose backbone it contains (the system file is complete:
-    # a plasmid can be the backbone of its own system and a compound of another)
-    carried = defaultdict(list)
-    for s, r in systems.items():
-        for p in (r.get("compound_plasmids") or "").split("|"):
-            if p in acc:
-                carried[p].append(s)
-    X = set(carried)
-
-    # alignment blocks: intervals on each candidate plasmid, per partner sequence
+    # MobMess alignment blocks: intervals on each compound, per partner sequence
     iv, xlen, plen = defaultdict(list), {}, {}
     with open(args.blocks) as fh:
         r = csv.reader(fh, delimiter="\t")
-        h = next(r)
-        k = {n: i for i, n in enumerate(h)}
+        k = {n: i for i, n in enumerate(next(r))}
         for row in r:
             ref, qry = row[k["ref"]], row[k["query"]]
             plen[ref], plen[qry] = int(row[k["ref_len"]]), int(row[k["query_len"]])
@@ -159,7 +180,8 @@ def main():
     for x, m in iv:
         partners_of[x].add(m)
 
-    genes = defaultdict(list)
+    # Evidence per compound: (start, end, label) lists
+    genes = defaultdict(list)   # Bakta: (start, end, locus, gene, product)
     with open(args.annotation) as fh:
         for line in fh:
             if line.startswith("#"):
@@ -167,57 +189,93 @@ def main():
             f = line.rstrip("\n").split("\t")
             if len(f) >= 8 and f[0] in X and f[1] == "cds":
                 genes[f[0]].append((int(f[2]), int(f[3]), f[5], f[6], f[7]))
+    ev = defaultdict(lambda: defaultdict(list))   # contig -> kind -> [(start, end, label)]
+    for r in read_tsv(args.repabc):
+        if r["#Sequence Id"] in X:
+            ev[r["#Sequence Id"]]["replication"].append((int(r["Start"]), int(r["Stop"]), f"{r['Gene']} (HMM)"))
+    for r in read_tsv(args.mob_biomarker):
+        c = r.get("sseqid")
+        if c in X:
+            s, e = sorted((int(r["sstart"]), int(r["send"])))
+            kind = {"replicon": "replication", "relaxase": "relaxase", "mate-pair-formation": "MPF",
+                    "oriT": "relaxase"}.get(r["biomarker"])
+            if kind:
+                ev[c][kind].append((s, e, f"{r['biomarker']} (MOB-typer)"))
+    for r in read_tsv(args.genomad_genes):
+        c = r["gene"].rsplit("_", 1)[0]
+        cs = r.get("annotation_conjscan", "NA")
+        if c in X and cs not in ("NA", ""):
+            kind = "relaxase" if cs.upper().startswith("MOB") else "MPF"
+            ev[c][kind].append((int(r["start"]), int(r["end"]), f"{cs} (geNomad)"))
+        if c in X and r.get("virus_hallmark") == "1":
+            ev[c]["phage gene"].append((int(r["start"]), int(r["end"]),
+                                        f"{(r.get('annotation_description') or 'virus hallmark')[:40]} (geNomad hallmark)"))
+    for r in read_tsv(args.genomad_virus):
+        c, _, tag = r["seq_name"].partition("|provirus_")
+        if c in X and tag:
+            s, e = map(int, tag.split("_")[:2])
+            ev[c]["provirus"].append((s, e, f"provirus {s}-{e} (geNomad, score {r.get('virus_score', '?')})"))
+    for c, gs in genes.items():
+        for s, e, locus, g, prod in gs:
+            if REPLICATION.search(prod):
+                ev[c]["replication"].append((s, e, f"{g or prod} (Bakta)"))
+            if RELAXASE.search(prod):
+                ev[c]["relaxase"].append((s, e, f"{g or prod} (Bakta)"))
+            if MPF.search(prod):
+                ev[c]["MPF"].append((s, e, f"{g or prod} (Bakta)"))
+            if INTEGRASE.search(prod) and not RESOLVASE.search(prod):
+                ev[c]["integrase"].append((s, e, f"{g or prod} (Bakta)"))
+            if TRANSPOSASE.search(prod) or RESOLVASE.search(prod):
+                ev[c]["transposase"].append((s, e, f"{g or prod} (Bakta)"))
+            if PHAGE.search(prod):
+                ev[c]["phage gene"].append((s, e, f"{g or prod} (Bakta)"))
 
-    def genes_in(x, intervals):
-        """Genes with >= 50% of their length inside the intervals."""
-        return [g for g in genes.get(x, [])
-                if sum(max(0, min(g[1], e) - max(g[0], a) + 1) for a, e in intervals) >= 0.5 * (g[1] - g[0] + 1)]
+    def best_member(x, system):
+        best = (None, [])
+        for m in systems[system]["backbone_plasmids"].split("|"):
+            if m == x or not is_circular(clusters.get(m, {})):
+                continue
+            cur = merge(iv.get((x, m), []))
+            if length(cur) > length(best[1]):
+                best = (m, cur)
+        return best
 
     def near(x, points, xl, circular):
-        """Genes within --window bp of any point (also across the origin of circular plasmids)."""
         shifts = (0, -xl, xl) if circular else (0,)
         w = args.window
         return [g for g in genes.get(x, [])
                 if any(g[1] + sh >= p - w and g[0] + sh <= p + w for p in points for sh in shifts)]
 
-    def count(gs, rx):
-        return sum(bool(rx.search(g[4])) for g in gs)
-
-    partner_rows, seg_rows, coint_rows, summary_rows, gene_rows = [], [], [], [], []
-    for x in sorted(X):
+    parent_rows, seg_rows, coint_rows, summary_rows, gene_rows = [], [], [], [], []
+    for x in sorted(compounds):
         xl = xlen.get(x)
         if not xl:
             continue
-        circular = is_circular(clusters.get(x, {}))
-        # best circular backbone member per system; keep plasmid partners only
-        plasmid_partners = []
-        for s in carried[x]:
-            best = (None, [])
-            for m in systems[s]["backbone_plasmids"].split("|"):
-                if m == x or not is_circular(clusters.get(m, {})):
-                    continue
-                cur = merge(iv.get((x, m), []))
-                if length(cur) > length(best[1]):
-                    best = (m, cur)
-            m, cur = best
-            if not m or plen.get(m, 0) < args.min_partner_len:
-                continue
-            if count(genes_in(x, cur), REPLICATION) == 0:
-                continue
-            plasmid_partners.append((s, m, cur))
-        if not plasmid_partners:
-            continue
         cl = clusters[x]
-        for s, m, cur in plasmid_partners:
-            partner_rows.append({
-                "plasmid": x, "cluster": cl["cluster"], "cluster_type": cl["cluster_type"], "length": xl,
-                "system": s, "backbone_cluster": systems[s]["backbone_cluster"], "partner": m,
-                "partner_length": plen[m], "covered_bp": length(cur), "fraction_of_plasmid": round(length(cur) / xl, 3),
-                "fraction_of_partner": round(length(cur) / plen[m], 3)})
+        circular = is_circular(cl)
+        parents, others = [], []
+        for s in cl["systems"].split("|"):
+            if s not in systems:
+                continue
+            m, cur = best_member(x, s)
+            if not m:
+                continue
+            has_rep = any(inside(a, e, cur) for a, e, _ in ev[x]["replication"])
+            if plen.get(m, 0) >= args.min_partner_len and has_rep:
+                parents.append((s, m, cur))
+            else:
+                others.append(f"{s}:{systems[s]['backbone_cluster']} ({plen.get(m, 0) // 1000} kb)")
+        parent_rows.append({
+            "plasmid": x, "cluster": cl["cluster"], "length": xl, "circular": int(circular), "systems": cl["systems"],
+            "plasmid_parents": "|".join(f"{s}:{systems[s]['backbone_cluster']}:{m} ({length(c)} bp)" for s, m, c in parents),
+            "non_plasmid_backbones": "|".join(others),
+            "note": "" if parents else "no plasmid parent (only small / non-plasmid backbones)"})
+        if not parents:
+            continue
 
-        # cointegrate: two complementary plasmid partners
+        # Cointegrate: two complementary parents
         best_pair = None
-        for (s1, m1, i1), (s2, m2, i2) in itertools.combinations(plasmid_partners, 2):
+        for (s1, m1, i1), (s2, m2, i2) in itertools.combinations(parents, 2):
             c1, c2 = length(i1) / xl, length(i2) / xl
             ov_iv = intersect(i1, i2)
             ov = length(ov_iv) / max(1, min(length(i1), length(i2)))
@@ -240,55 +298,78 @@ def main():
                 "junctions": ";".join(f"{a}-{e}" for a, e in junctions),
                 "mobile_genes_at_junctions": ";".join(f"{g[2]}:{g[4]}" for g in jg if MOBILE.search(g[4]))})
             gene_rows += [{"type": "cointegrate junction", "plasmid": x, "start": g[0], "end": g[1], "locus": g[2],
-                           "gene": g[3], "product": g[4], "mobile": int(bool(MOBILE.search(g[4])))} for g in jg]
+                           "gene": g[3], "product": g[4]} for g in jg if MOBILE.search(g[4])]
 
-        # extra segments: not covered by any plasmid partner
-        core = merge([list(t) for _, _, cur in plasmid_partners for t in cur])
-        own_cluster = {c for c, r in clusters.items() if r["cluster"] == cl["cluster"]}
-        partner_seqs = {m for _, m, _ in plasmid_partners}
-        segs = [g for g in gaps(core, xl, circular) if g[1] - g[0] + 1 >= args.min_segment]
+        # Extra sequence: not covered by any parent
+        core = merge([list(t) for _, _, cur in parents for t in cur])
+        own = {c for c, r in clusters.items() if r["cluster"] == cl["cluster"]}
+        parent_seqs = {m for _, m, _ in parents}
         classes = []
-        for a, e in segs:
-            seg = unwrap(a, e, xl)
+        for a, e in (g for g in gaps(core, xl, circular) if g[1] - g[0] + 1 >= args.min_segment):
+            region = unwrap(a, e, xl)
             e_pos = e if e <= xl else e - xl
-            inside = genes_in(x, seg)
-            flank = near(x, [a, e_pos], xl, circular)
-            mobile_flank = [g for g in flank if MOBILE.search(g[4]) and g not in inside]
-            # best match: other sequence aligning to most of the segment (not containing the whole plasmid)
+            seg_bp = e - a + 1
+            ends = near(x, [a, e_pos], xl, circular)
+            hit = {kind: [lab for s_, t_, lab in ev[x][kind] if inside(s_, t_, region)]
+                   for kind in ("replication", "relaxase", "MPF", "integrase", "transposase", "phage gene")}
+            pro = [(s_, t_, lab) for s_, t_, lab in ev[x]["provirus"]
+                   if sum(max(0, min(t_, re_) - max(s_, ra) + 1) for ra, re_ in region) >= 0.5 * (t_ - s_ + 1)]
+            int_end = [f"{g[3] or g[4]} (Bakta, end)" for g in ends
+                       if INTEGRASE.search(g[4]) and not RESOLVASE.search(g[4]) and not inside(g[0], g[1], region)]
+            tn_end = [f"{g[3] or g[4]} (Bakta, end)" for g in ends
+                      if (TRANSPOSASE.search(g[4]) or RESOLVASE.search(g[4])) and not inside(g[0], g[1], region)]
             donor, dcov = None, 0
             for m in partners_of[x]:
-                if m in own_cluster or m in partner_seqs:
+                if m in own or m in parent_seqs:
                     continue
                 mi = merge(iv[(x, m)])
                 if length(mi) >= 0.8 * xl:
                     continue
-                c = length(intersect(mi, merge(seg)))
+                c = length(intersect(mi, merge(region)))
                 if c > dcov:
                     donor, dcov = m, c
-            n_rep, n_int, n_rel = count(inside, REPLICATION), count(inside, INTEGRASE), count(inside, RELAXASE)
-            cls = ("plasmid-derived" if n_rep else "integrative/mobilizable" if (n_int or n_rel)
-                   else "transposon-bounded" if mobile_flank else "other")
+            in_data = dcov >= 0.8 * seg_bp
+            phage = bool(pro) or len(hit["phage gene"]) >= 2
+            integ = bool(hit["integrase"] or int_end)
+            if hit["replication"] and phage:
+                cls = "phage-plasmid"
+            elif hit["replication"]:
+                cls = "plasmid (second parent in dataset)" if in_data else "plasmid (parent not in dataset)"
+            elif phage:
+                cls = "phage"
+            elif integ and hit["relaxase"] and hit["MPF"]:
+                cls = "ICE-like"
+            elif integ and hit["relaxase"]:
+                cls = "IME-like"
+            elif integ:
+                cls = "integrative element"
+            elif hit["relaxase"] or hit["MPF"]:
+                cls = "MOB/MPF module"
+            elif hit["transposase"] or tn_end:
+                cls = "transposon acquisition"
+            else:
+                cls = "other"
             classes.append(cls)
+            uniq = lambda lst: ";".join(dict.fromkeys(lst))
             seg_rows.append({
-                "plasmid": x, "cluster": cl["cluster"], "length": xl, "start": a, "end": e_pos, "segment_bp": e - a + 1,
-                "class": cls, "genes": len(inside), "replication": n_rep, "partition": count(inside, PARTITION),
-                "integrase_recombinase": n_int, "relaxase_mobilization": n_rel,
-                "conjugation": count(inside, CONJUGATION), "transposase": count(inside, TRANSPOSASE),
-                "mobile_genes_at_ends": ";".join(f"{g[2]}:{g[4]}" for g in mobile_flank),
+                "plasmid": x, "cluster": cl["cluster"], "length": xl, "start": a, "end": e_pos, "segment_bp": seg_bp,
+                "class": cls, "replication": uniq(hit["replication"]), "relaxase": uniq(hit["relaxase"]),
+                "MPF": uniq(hit["MPF"]), "integrase": uniq(hit["integrase"] + int_end),
+                "transposase": uniq(hit["transposase"] + tn_end),
+                "phage": uniq([lab for _, _, lab in pro] + hit["phage gene"]),
+                "genes": sum(inside(g[0], g[1], region) for g in genes.get(x, [])),
                 "best_match": donor or "", "best_match_cluster": clusters.get(donor, {}).get("cluster", ""),
                 "best_match_type": clusters.get(donor, {}).get("cluster_type", ""),
-                "best_match_fraction_of_segment": round(dcov / (e - a + 1), 3)})
+                "best_match_fraction": round(dcov / seg_bp, 3), "source_in_dataset": int(in_data)})
             gene_rows += [{"type": f"segment end ({cls})", "plasmid": x, "start": g[0], "end": g[1], "locus": g[2],
-                           "gene": g[3], "product": g[4], "mobile": 1} for g in mobile_flank]
+                           "gene": g[3], "product": g[4]} for g in ends if MOBILE.search(g[4])]
 
         summary_rows.append({
-            "plasmid": x, "cluster": cl["cluster"], "cluster_type": cl["cluster_type"], "length": xl,
-            "plasmid_partners": len(plasmid_partners),
-            "partner_systems": "|".join(s for s, _, _ in plasmid_partners),
-            "partner_backbone_clusters": "|".join(systems[s]["backbone_cluster"] for s, _, _ in plasmid_partners),
-            "covered_by_partners_bp": length(core), "extra_segments": len(segs),
-            "extra_bp": sum(e - a + 1 for a, e in segs), "cointegrate": int(bool(best_pair)),
-            **{f"n_{c.split('/')[0].replace('-', '_')}": classes.count(c) for c in CLASSES}})
+            "plasmid": x, "cluster": cl["cluster"], "length": xl, "parents": len(parents),
+            "parent_backbone_clusters": "|".join(systems[s]["backbone_cluster"] for s, _, _ in parents),
+            "covered_by_parents_bp": length(core), "extra_segments": len(classes),
+            "extra_bp": xl - length(core), "cointegrate": int(bool(best_pair)),
+            **{c: classes.count(c) for c in CLASSES}})
 
     def write(path, rows, cols):
         with open(path, "w", newline="") as out:
@@ -296,32 +377,28 @@ def main():
             w.writeheader()
             w.writerows(rows)
 
-    write("plasmid_partners.tsv", partner_rows,
-          ["plasmid", "cluster", "cluster_type", "length", "system", "backbone_cluster", "partner", "partner_length",
-           "covered_bp", "fraction_of_plasmid", "fraction_of_partner"])
+    write("compound_parents.tsv", parent_rows,
+          ["plasmid", "cluster", "length", "circular", "systems", "plasmid_parents", "non_plasmid_backbones", "note"])
     write("extra_segments.tsv", seg_rows,
-          ["plasmid", "cluster", "length", "start", "end", "segment_bp", "class", "genes", "replication", "partition",
-           "integrase_recombinase", "relaxase_mobilization", "conjugation", "transposase", "mobile_genes_at_ends",
-           "best_match", "best_match_cluster", "best_match_type", "best_match_fraction_of_segment"])
+          ["plasmid", "cluster", "length", "start", "end", "segment_bp", "class", "replication", "relaxase", "MPF",
+           "integrase", "transposase", "phage", "genes", "best_match", "best_match_cluster", "best_match_type",
+           "best_match_fraction", "source_in_dataset"])
     write("cointegrates.tsv", coint_rows,
           ["plasmid", "cluster", "length", "system_1", "backbone_cluster_1", "backbone_1", "covered_kb_1", "fraction_1",
            "system_2", "backbone_cluster_2", "backbone_2", "covered_kb_2", "fraction_2", "overlap", "union",
            "junctions", "mobile_genes_at_junctions"])
     write("integration_summary.tsv", summary_rows,
-          ["plasmid", "cluster", "cluster_type", "length", "plasmid_partners", "partner_systems",
-           "partner_backbone_clusters", "covered_by_partners_bp", "extra_segments", "extra_bp", "cointegrate"]
-          + [f"n_{c.split('/')[0].replace('-', '_')}" for c in CLASSES])
-    write("cointegrate_junction_genes.tsv", gene_rows, ["type", "plasmid", "start", "end", "locus", "gene", "product", "mobile"])
-
-    plot(summary_rows, partner_rows, seg_rows)
-    n_cl = len({r["cluster"] for r in summary_rows})
-    print(f"{len(summary_rows)} accessory plasmids ({n_cl} clusters) contain a plasmid partner backbone; "
-          f"{len(seg_rows)} extra segments >= {args.min_segment} bp; cointegrates: {len(coint_rows)} plasmids in "
-          f"{len({r['cluster'] for r in coint_rows})} clusters")
+          ["plasmid", "cluster", "length", "parents", "parent_backbone_clusters", "covered_by_parents_bp",
+           "extra_segments", "extra_bp", "cointegrate"] + CLASSES)
+    write("cointegrate_junction_genes.tsv", gene_rows, ["type", "plasmid", "start", "end", "locus", "gene", "product"])
+    plot(summary_rows, seg_rows)
+    n_par = sum(1 for r in parent_rows if r["plasmid_parents"])
+    print(f"{len(parent_rows)} compound accessory plasmids, {n_par} with a plasmid parent; {len(seg_rows)} extra "
+          f"segments >= {args.min_segment} bp; cointegrates: {len(coint_rows)}")
 
 
-def plot(summary_rows, partner_rows, seg_rows):
-    """One bar per plasmid (sorted by length): plasmid-partner coverage and extra segments by class."""
+def plot(summary_rows, seg_rows):
+    """One bar per compound plasmid (by length): parent-covered sequence and extra segments by class."""
     os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
     import matplotlib
     matplotlib.use("Agg")
@@ -330,23 +407,24 @@ def plot(summary_rows, partner_rows, seg_rows):
 
     rows = sorted(summary_rows, key=lambda r: r["length"])
     fig, ax = plt.subplots(figsize=(7, max(3, 0.06 * len(rows) + 1)))
-    if rows:
-        segs = defaultdict(list)
-        for s in seg_rows:
-            segs[s["plasmid"]].append(s)
-        for i, r in enumerate(rows):
-            ax.barh(i, r["length"] / 1000, color=COLORS["partner"], height=0.8, linewidth=0)
-            for s in segs[r["plasmid"]]:
-                for a, e in unwrap(s["start"], s["start"] + s["segment_bp"] - 1, r["length"]):
-                    ax.barh(i, (e - a + 1) / 1000, left=(a - 1) / 1000, color=COLORS[s["class"]], height=0.8, linewidth=0)
-            if r["cointegrate"]:
-                ax.text(r["length"] / 1000 + 3, i, "cointegrate", va="center", fontsize=5)
+    segs = defaultdict(list)
+    for s in seg_rows:
+        segs[s["plasmid"]].append(s)
+    for i, r in enumerate(rows):
+        ax.barh(i, r["length"] / 1000, color=COLORS["parent"], height=0.8, linewidth=0)
+        for s in segs[r["plasmid"]]:
+            for a, e in unwrap(s["start"], s["start"] + s["segment_bp"] - 1, r["length"]):
+                ax.barh(i, (e - a + 1) / 1000, left=(a - 1) / 1000, color=COLORS[s["class"]], height=0.8, linewidth=0)
+        if r["cointegrate"]:
+            ax.text(r["length"] / 1000 + 3, i, "cointegrate", va="center", fontsize=5)
+    used = {s["class"] for s in seg_rows}
     ax.set_yticks([])
-    ax.set_ylabel(f"Accessory plasmids with a plasmid partner (n = {len(rows)})")
+    ax.set_ylabel(f"Compound accessory plasmids with a plasmid parent (n = {len(rows)})")
     ax.set_xlabel("Position (kb)")
     ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(handles=[Patch(color=COLORS["partner"], label="covered by plasmid partner(s)")] +
-              [Patch(color=COLORS[c], label=f"extra: {c}") for c in CLASSES], frameon=False, fontsize=6, loc="lower right")
+    ax.legend(handles=[Patch(color=COLORS["parent"], label="covered by parent plasmid(s)")] +
+              [Patch(color=COLORS[c], label=c) for c in CLASSES if c in used],
+              frameon=False, fontsize=6, loc="lower right")
     fig.savefig("integration_map.png", dpi=300, bbox_inches="tight")
     fig.savefig("integration_map.svg", bbox_inches="tight")
     plt.close(fig)
