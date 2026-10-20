@@ -6,7 +6,7 @@ This represent the commands used during my work annotating and describing novel 
 With the help of Claude, tools used were organized into a Nextflow pipeline to detect accessory plasmids in *Sinorhizobium meliloti* genome assemblies.
 
 
-![AccPlasPipeline workflow](assets/workflow_compact.svg)
+![AccPlasPipeline workflow](assets/workflow_compact.png)
 
 A more detailed diagram is in [assets/workflow.svg](assets/workflow.svg).
 Both are generated with Graphviz from `assets/workflow_compact.dot` and `assets/workflow.dot`
