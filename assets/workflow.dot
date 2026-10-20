@@ -1,0 +1,138 @@
+// AccPlasPipeline detailed workflow. Render:
+//   dot -Tsvg workflow.dot -o workflow.svg && dot -Tpng -Gdpi=300 workflow.dot -o workflow.png
+digraph AccPlasPipeline {
+    graph [rankdir=TB, newrank=true, compound=true, nodesep=0.35, ranksep=0.45, pad=0.3,
+           fontname="DejaVu Sans", fontsize=12, labelloc=t, splines=true,
+           label=<<b>AccPlasPipeline</b> — accessory plasmids of <i>Sinorhizobium meliloti</i><br/><font point-size="9" color="#555555">boxes: steps (tool) · notes: data · dashed: optional · results/&lt;NN&gt;_*: output folders</font>>];
+    node  [shape=box, style="rounded,filled", fillcolor="#ffffff", color="#555555", fontname="DejaVu Sans", fontsize=9, margin="0.12,0.06"];
+    edge  [color="#666666", arrowsize=0.6, fontname="DejaVu Sans", fontsize=7, fontcolor="#777777"];
+
+    subgraph cluster_inputs {
+        label=<<b>Inputs</b>>; style="rounded,filled"; fillcolor="#f4f4f4"; color="#bbbbbb";
+        plsdb [shape=note, fillcolor="#fff7d6", label=<<b>PLSDB 2024_05_31_v2</b><br/>sequences · nuccore.csv · typing.csv<br/>Mash sketch*>];
+        dbs   [shape=note, fillcolor="#fff7d6", label=<<b>Databases</b><br/>geNomad v1.9 · Bakta v6.0 · MOB-suite · RepABC HMMs (TIGRFAMs / Pfam)<br/>TASmania · DefenseFinder · antiSMASH · dbCAN · eggNOG* · SignalP 6 / 4.1*>];
+        sheet [shape=note, fillcolor="#fff7d6", label=<<b>Samplesheet</b><br/>sample · assembly (polished Flye)<br/>assembly_info · bam* · gff* · assembly_graph* · dataset*>];
+        ref   [shape=note, fillcolor="#fff7d6", style="filled,dashed", label=<<b>Reference genome*</b><br/>S. meliloti GCF_037023865<br/>(chromosome · pSymA · pSymB)>];
+    }
+
+    subgraph cluster_A {
+        label=<<b>A · Plasmid candidates and de-replication</b>>; style="rounded,filled"; fillcolor="#e8f1fb"; color="#9bbbe0";
+        s1   [label=<<b>1 · Contig length filter</b><br/>seqkit · contigs ≤ 1 Mb · IDs &lt;contig&gt;_&lt;sample&gt;>];
+        s2   [label=<<b>2 · Plasmid classification</b><br/>geNomad end-to-end (annotation only)>];
+        s3   [label=<<b>3 · Related PLSDB plasmids</b><br/>'meliloti' in MOB-typer neighbour / description<br/>+ Mash hits* · seqkit grep>];
+        circ [label=<<b>Circularity + read depth</b><br/>Flye assembly_info.txt>];
+        s4   [label=<<b>4 · MobMess de-replication</b><br/>mobmess systems (MUMmer 90/90)<br/>cluster filter: no fragments · &lt; 1 Mb · circular>];
+        s4b  [label=<<b>4b · Contig markers + review</b><br/>RepABC HMMs (pyrodigal + pyhmmer, GA cut-offs) · geNomad<br/>circular contigs per assembly · Flye graph context*<br/>review: linear + marker, dropped or graph-isolated>];
+        rev  [shape=note, fillcolor="#fff7d6", label=<<b>Review table</b><br/>linear_marker_review.tsv>];
+        s5   [label=<<b>5 · Containment network</b><br/>networkx · ipysigma (HTML)>];
+    }
+
+    subgraph cluster_B {
+        label=<<b>B · Plasmid markers and replicon typing</b>>; style="rounded,filled"; fillcolor="#e9f6ec"; color="#9ccfa8";
+        s6a   [label=<<b>6 · Annotation of candidates</b><br/>Bakta (pooled) · MOB-typer>];
+        s6    [label=<<b>6 · Plasmid marker filter</b><br/>Rep/partition protein (Bakta) or MOB relaxase (geNomad)<br/>− exclude list* · flag small, low-depth plasmids>];
+        final [shape=note, fillcolor="#d6f0dc", penwidth=1.5, label=<<b>Accessory plasmids</b><br/>publication: 423>];
+        s7    [label=<<b>7 · RepABC operons + replicon groups</b><br/>RepA per plasmid · MMseqs2 with Rh01–Rh08<br/>(Cavassim et al. 2020) → Rh / Si groups>];
+        s8    [label=<<b>8 · MobMess on final set</b><br/>clusters and plasmid systems>];
+        s9    [label=<<b>9 · Summary table + figures</b><br/>MOB/MPF/mobility · Rep · replicon groups<br/>UpSet · plasmids per strain (matplotlib)>];
+        s12   [label=<<b>12 · Pairwise ANI</b><br/>skani dist · ANI vs alignment fraction>];
+    }
+
+    subgraph cluster_C {
+        label=<<b>C · Functional annotation (10)</b>>; style="rounded,filled"; fillcolor="#fdf0e4"; color="#e6b98f";
+        s10  [label=<<b>Bakta per plasmid</b><br/>merged: features · proteins · GenBank>];
+        cz   [label=<<b>CAZymes</b><br/>run_dbcan 5.2.9 (≥ 2 tools)>];
+        as   [label=<<b>BGCs</b><br/>antiSMASH 8.0.4>];
+        ta   [label=<<b>Toxin–antitoxin</b><br/>TASer-like: pyrodigal + TASmania HMMs<br/>T/A labels · pseudo-operons>];
+        df   [label=<<b>Defense systems</b><br/>DefenseFinder 3.0.0>];
+        sp   [style="rounded,filled,dashed", label=<<b>Signal peptides*</b><br/>SignalP 6 (licensed module)>];
+        s10s [label=<<b>Annotation summary + figures</b><br/>per plasmid and per MobMess cluster>];
+    }
+
+    subgraph cluster_D {
+        label=<<b>D · Replicon context (11)*</b>>; style="rounded,filled,dashed"; fillcolor="#f2ecf8"; color="#bfa6d9";
+        tag [label=<<b>Replicon tags</b><br/>minimap2 asm5 vs reference<br/>Chromosome · pSymA · pSymB · &lt;replicon&gt;_fragment · Other>];
+        km  [label=<<b>3-mer composition</b><br/>Kmertools · Bray–Curtis · UMAP<br/>length and GC vs main replicons>];
+        cn  [style="rounded,filled,dashed", label=<<b>Copy number*</b><br/>samtools depth (BAM)<br/>plasmid / chromosome depth>];
+    }
+
+    subgraph cluster_E {
+        label=<<b>E · Gene content (13)*</b>>; style="rounded,filled,dashed"; fillcolor="#e9f4ec"; color="#9cc9a8";
+        eg   [label=<<b>eggNOG-mapper*</b><br/>2.1.13 · MMseqs2 · COG / OGs>];
+        pan  [style="rounded,filled,dashed", label=<<b>Panaroo*</b><br/>genomes (GFF) + plasmids>];
+        cog  [label=<<b>COG analysis</b><br/>counts · Jaccard PCoA/MDS<br/>Fisher enrichment per cluster>];
+        gs   [label=<<b>Gene sharing</b><br/>families shared with Chr · pSymA · pSymB<br/>UpSet · COG of shared families>];
+        panp [style="rounded,filled,dashed", label=<<b>Panaroo (plasmids)*</b><br/>plasmid-only gene families>];
+        sp4  [style="rounded,filled,dashed", label=<<b>SignalP 4.1*</b><br/>gram-, notm (licensed module)>];
+        spf  [label=<<b>Signal peptide families</b><br/>CAZymes and conjugation removed<br/>plasmids per family (top 15)>];
+    }
+
+    subgraph cluster_F {
+        label=<<b>F · Plasmid partners and cointegrates (14)</b>>; style="rounded,filled,dashed"; fillcolor="#fbeaea"; color="#d9a0a0";
+        s14 [style="rounded,filled,dashed", label=<<b>14 · Plasmid partners + cointegrates</b><br/>MobMess alignment blocks (Step 4 run)<br/>junction genes from Bakta · under revision>];
+    }
+
+    // Inputs
+    sheet -> s1;
+    sheet -> circ [color="#aaaaaa"];
+    sheet -> s4b  [style=dashed, color="#aaaaaa", label="graph*"];
+    plsdb -> s3;
+    ref   -> tag;
+
+    // A: candidates and de-replication
+    s1 -> s2;
+    s1 -> s4;
+    s3 -> s4;
+    circ -> s4;
+    s4 -> s5;
+    s1 -> s4b;
+    s2 -> s4b   [style=dashed];
+    circ -> s4b [style=dashed];
+    s4 -> s4b   [label="filter"];
+    tag -> s4b  [style=dashed, label="tags*"];
+    s4b -> rev;
+
+    // B: markers
+    s4 -> s6a;
+    s6a -> s6;
+    s2 -> s6    [label="MOB relaxase"];
+    circ -> s6  [style=dashed, label="depth flag"];
+    s6 -> final;
+    final -> s7;
+    final -> s8;
+    final -> s12;
+    s7 -> s9;
+
+    // C: functional annotation
+    final -> s10;
+    s10 -> cz;
+    s10 -> as;
+    s10 -> ta;
+    s10 -> df;
+    cz -> sp [style=dashed];
+    {ta df as cz} -> s10s;
+    sp -> s10s [style=dashed];
+
+    // D: replicon context
+    final -> cn;
+    final -> km;
+    tag -> cn;
+    tag -> km;
+
+    // E: gene content
+    s10 -> eg;
+    s10 -> pan;
+    eg -> cog;
+    eg -> gs [style=dashed];
+    pan -> gs;
+    tag -> gs;
+    s10 -> panp;
+    s10 -> sp4;
+    panp -> spf;
+    sp4 -> spf;
+    cz -> spf [style=dashed, label="CAZymes"];
+
+    // F: cointegrates
+    s4 -> s14 [style=dashed];
+    s10 -> s14 [style=dashed];
+}

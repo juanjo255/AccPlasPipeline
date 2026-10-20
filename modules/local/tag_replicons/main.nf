@@ -31,7 +31,9 @@ process TAG_REPLICONS {
         --ref-tags ${reference_tags} \\
         --sample ${meta.id} \\
         --add-suffix ${add_sample_suffix} \\
-        --min-ref-cov ${min_ref_cov}
+        --min-ref-cov ${min_ref_cov} \\
+        --fragment-min-frac ${params.tag_fragment_min_frac} \\
+        --fragment-min-aligned ${params.tag_fragment_min_aligned}
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

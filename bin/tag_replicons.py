@@ -15,6 +15,14 @@ is fused to another one or missing, the tag slides to an unrelated contig: in th
 publication two plasmids were tagged pSymB while covering < 1% of pSymB. All
 other publication tags cover >= 41% of their replicon. Use --min-ref-cov 0 to
 reproduce the publication exactly.
+Fragments (new): a contig not given a replicon above is tagged <replicon>_fragment (e.g.
+pSymA_fragment) when >= --fragment-min-frac of its own length aligns to that replicon (query
+intervals merged) and the aligned length is >= --fragment-min-aligned bp. This catches the
+other pieces of a replicon split into several contigs (e.g. AVT83, pSymA in 840 + 722 kb).
+Calibrated on the 340 assemblies: the final accessory plasmids reach at most 55.6% (median
+< 10%), while the large replicon pieces (415-935 kb) are >= 69%; the length limit keeps out
+IS elements (2-13 kb contigs with copies on pSymA or the chromosome).
+
 Contig IDs are renamed as in the contig length filter (`_<sample>` added if missing).
 
 Outputs:
@@ -34,6 +42,10 @@ def parse_args():
     p.add_argument("--sample", required=True)
     p.add_argument("--add-suffix", choices=["true", "false"], required=True)
     p.add_argument("--min-ref-cov", type=float, default=30, help="minimum coverage of the reference replicon (%%)")
+    p.add_argument("--fragment-min-frac", type=float, default=0.65,
+                   help="fragment: minimum fraction of the contig aligned to one replicon")
+    p.add_argument("--fragment-min-aligned", type=int, default=50000,
+                   help="fragment: minimum aligned length on the contig (bp)")
     return p.parse_args()
 
 
@@ -72,6 +84,7 @@ def main():
                 ref_tags[ref] = tag
 
     rows, blocks, ref_len = [], collections.defaultdict(list), {}
+    qblocks = collections.defaultdict(list)
     with open(args.paf) as fh:
         for line in fh:
             f = line.rstrip("\n").split("\t")
@@ -80,6 +93,7 @@ def main():
                 sys.exit(f"ERROR: reference sequence {t} has no tag in {args.ref_tags}")
             rows.append((block, q, t))
             blocks[(q, t)].append((tstart, tend))
+            qblocks[(q, t)].append((int(f[2]), int(f[3])))
             ref_len[t] = int(f[6])
 
     # Longest block per contig, then each replicon to the contig with the longest block
@@ -98,6 +112,14 @@ def main():
         out.write("contig\ttag\tlength\treference\treference_coverage\n")
         for contig, length in lengths.items():
             ref, tag, cov = "-", "Other", 0.0
+            if contig not in assigned:
+                # Secondary piece of a replicon split into several contigs
+                hits = [(merged_length(iv), t) for (q, t), iv in qblocks.items() if q == contig]
+                if hits:
+                    aligned, t = max(hits)
+                    if aligned >= args.fragment_min_aligned and aligned / length >= args.fragment_min_frac:
+                        ref, tag = t, f"{ref_tags[t]}_fragment"
+                        cov = 100 * merged_length(blocks[(contig, t)]) / ref_len[t]
             if contig in assigned:
                 ref = assigned[contig]
                 cov = 100 * merged_length(blocks[(contig, ref)]) / ref_len[ref]
@@ -109,10 +131,10 @@ def main():
             counts[tag] += 1
             new_id = contig if args.add_suffix == "false" or contig.endswith(suffix) else contig + suffix
             out.write(f"{new_id}\t{tag}\t{length}\t{ref}\t{cov:.1f}\n")
-            if tag != "Other":
+            if tag in ("Chromosome", "pSymA", "pSymB"):  # one sequence per replicon, as in the publication
                 seq = "".join(seqs[contig])
                 fa.write(f">{new_id}\n" + "\n".join(seq[i:i + 80] for i in range(0, len(seq), 80)) + "\n")
-    print(f"[{args.sample}] " + ", ".join(f"{t}: {counts[t]}" for t in ("Chromosome", "pSymA", "pSymB", "Other")))
+    print(f"[{args.sample}] " + ", ".join(f"{t}: {counts[t]}" for t in sorted(counts)))
 
 
 if __name__ == "__main__":

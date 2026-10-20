@@ -9,7 +9,7 @@ With the help of Claude, tools used were organized into a Nextflow pipeline to d
 ![AccPlasPipeline workflow](assets/workflow_compact.svg)
 
 A more detailed diagram is in [assets/workflow.svg](assets/workflow.svg).
-Both are generated from Graphviz.
+Both are generated with Graphviz from `assets/workflow_compact.dot` and `assets/workflow.dot`
 
 ## Contents
 
@@ -21,6 +21,7 @@ Both are generated from Graphviz.
   - [2. Plasmid classification (`geNomad end-to-end`)](#2-plasmid-classification-genomad-end-to-end)
   - [3. Related PLSDB plasmids (`select_plsdb.py`, optional `mash dist`, `seqkit grep`)](#3-related-plsdb-plasmids-select_plsdbpy-optional-mash-dist-seqkit-grep)
   - [4. De-replication with MobMess (`mobmess systems`)](#4-de-replication-with-mobmess-mobmess-systems)
+  - [4b. Contig markers and review of linear contigs (`pyrodigal`, `pyhmmer`)](#4b-contig-markers-and-review-of-linear-contigs-pyrodigal-pyhmmer)
   - [5. MobMess containment network (`networkx`, `ipysigma`)](#5-mobmess-containment-network-networkx-ipysigma)
   - [6. Plasmid markers (`bakta`, `mob_typer`, geNomad)](#6-plasmid-markers-bakta-mob_typer-genomad)
   - [7. RepABC operons and replicon groups (`repabc_operons.py`, `mmseqs easy-cluster`)](#7-repabc-operons-and-replicon-groups-repabc_operonspy-mmseqs-easy-cluster)
@@ -61,6 +62,7 @@ A CSV samplesheet with one Flye assembly per sample (see `assets/samplesheet_exa
 | `assembly_info` | path to Flye's `assembly_info.txt` for that assembly     |
 | `bam`           | optional reads mapped back to this assembly (sorted BAM), used for plasmid copy number |
 | `gff`           | optional whole-genome Bakta GFF3 of this assembly, used for gene sharing (Step 13) |
+| `assembly_graph` | optional Flye `assembly_graph.gfa` of this assembly, used for the graph context of linear contigs (Step 4b review) |
 | `dataset`       | optional group used to colour the figures (e.g. `Penn State`, `In-house`); default `Sample`. `Database` is reserved for PLSDB plasmids |
 
 ## Usage
@@ -74,6 +76,10 @@ nextflow run accessory_plasmids -profile conda \
     --antismash_db /path/to/antismash/databases --dbcan_db /path/to/dbcan_db \
     --outdir results
 ```
+
+Before launching, run `export PYTHONNOUSERSITE=1`. Otherwise Python packages installed in `~/.local` (`pip install
+--user`) are seen as already installed when the environments are built, and their pip dependencies (e.g. MobMess) are
+not installed into the environment. The tasks themselves always run with `PYTHONNOUSERSITE=1` (`nextflow.config`).
 
 Software is provided only through conda: always use the `conda` profile. Each step builds its own
 environment from `modules/local/<step>/environment.yml` the first time it runs.
@@ -176,6 +182,64 @@ Output: `results/04_mobmess/`
 - `mobmess_clusters.txt`, `mobmess_systems.txt`, `mobmess_contigs.txt`, `mobmess_ani*.txt`, `*_graph.*`: MobMess output
 - `mobmess.filtered_clusters.tsv`: clusters that passed, with `length` and `source` (`sample`/`plsdb`)
 - `mobmess.filtered.fasta`, `mobmess.filtered_ids.txt`: sequences that passed
+
+### 4b. Contig markers and review of linear contigs (`pyrodigal`, `pyhmmer`)
+
+Before MobMess, every filtered contig of every sample is searched for RepABC genes without a full
+annotation: genes are predicted with pyrodigal (metagenomic mode) and the proteins (>= 200 aa) searched
+with pyhmmer against four HMMs shipped in `assets/repabc_hmms.hmm`, each with its gathering (GA)
+threshold:
+
+| model | source | gene |
+|---|---|---|
+| TIGR03453 `partition_RepA` | TIGRFAMs 15.0 | repA |
+| TIGR03454 `partition_RepB` | TIGRFAMs 15.0 | repB |
+| PF03428 `RP-C` (N-terminal), PF11800 `RP-C_C` (C-terminal) | Pfam 35.0 | repC |
+
+The operons are then called with the publication rules (`repabc_operons.py`, Step 7). A truncated
+RepA/RepB (pseudogene) falls below the GA threshold and does not complete an operon.
+On the 423 published accessory plasmids this gives 396 complete operons, against 390 from the
+Bakta gene names with the same rules. 387 agree. The HMMs complete 9 operons whose RepA/RepB
+Bakta named only generically (e.g. "AAA domain-containing protein", "Soj", "hypothetical protein").
+They do not complete 3 whose RepA or RepB is a truncated pseudogene. On the reference genome they
+find no RepABC genes on the chromosome, one complete operon on pSymA, and on pSymB one complete
+operon plus a RepA-RepB pair.
+
+`contig_markers.tsv` has one row per filtered sample contig: sample, dataset, length, circular, the
+number of contigs and of circular contigs in the whole assembly (Flye `assembly_info.txt`), RepA/RepB/RepC
+counts, operon, geNomad plasmid score / hallmarks / conjugation genes, coverage relative to the
+chromosome, MobMess cluster and type (with the number of circular members), whether the MobMess filter
+kept it, and the replicon tag (Step 11, with `--reference_genome`).
+
+With an `assembly_graph` column, each contig also gets its Flye assembly-graph context: the graph
+component (connected S/L segments of `assembly_graph.gfa`, mapped to contigs through `graph_path` in
+`assembly_info.txt`), the other contigs in it (named by replicon tag when available), and its repeat
+edges (used more than once on its path, or >= 1.8x its depth).
+
+`linear_marker_review.tsv` lists linear contigs, not tagged as chromosome / pSymA / pSymB, for user review:
+- **A**: at least one RepABC gene, and dropped by the MobMess filter (Step 4);
+- **B**: a plasmid marker (at least one RepABC gene, or a geNomad plasmid call with at least one hallmark gene
+  or, without hallmarks, a score >= `--review_genomad_score`, 0.9), and the graph component
+  holds no main replicon: alone, or only with other non-main contigs (without replicon tags: alone). Kept or
+  dropped by the filter. Typically a complete replicon that Flye could not circularize because of repeats.
+  There is no length threshold: small plasmids are real too (the final set has the 7.5 kb `contig_8_TG17`),
+  so the markers decide.
+
+Graph connections are reported, not used to exclude: a contig connected to the chromosome is likely a
+fragment or an integrated element, while a connection to pSymA/pSymB is ambiguous. Flagged contigs are
+not added back automatically, and no reassembly is attempted. A typical case is a plasmid that is linear in every assembly carrying it, so its
+cluster has no circular member: in the publication data, `contig_1_TG62` (225 kb, complete RepABC
+operon) was dropped this way: it is alone in its graph component (225 kb, 39x vs 34x chromosome) and its
+path runs several times through repeat edges at up to 13.5x its depth. In a 6-genome subset run it is
+flagged by A and B. So are `contig_3_TG10` and `contig_6_TG70`, whose circular relatives (cluster 277)
+are not in the subset. `contig_5_TG70` (20 kb, sharing repeats with `contig_6_TG70` away from the main
+replicons) is flagged by B only.
+
+Output: `results/04_contig_markers/`
+- `repabc_hmm/`: `<sample>.repabc.tsv` (RepABC genes, Bakta layout), `<sample>.hits.tsv` (all HMM hits),
+  `<sample>.summary.tsv` (operons), `<sample>.assembly_stats.tsv`, `<sample>.contig_info.tsv`
+- `assembly_graph/`: `<sample>.graph.tsv`
+- `contig_markers/`: `contig_markers.tsv`, `linear_marker_review.tsv`
 
 ### 5. MobMess containment network (`networkx`, `ipysigma`)
 
@@ -374,6 +438,17 @@ Output: `results/11_replicons/`
 - `copy_number.tsv` (all samples), `copy_number/<sample>.copy_number.tsv`
 - `kmer/kmer_3mer_frequencies.tsv`, `kmer/kmer_umap.tsv`, `kmer/kmer_stats.tsv`; figures `kmer_umap`, `replicon_length`, `replicon_gc`
 
+**Fragments.** The publication rule gives each reference replicon to a single contig, so the other pieces of a
+replicon split into several contigs stayed `Other` (e.g. AVT83: pSymA in an 840 kb and a 722 kb contig; the
+722 kb piece was tagged `Other`). A contig not given a replicon is now tagged `<replicon>_fragment` (e.g.
+`pSymA_fragment`) when >= `--tag_fragment_min_frac` (0.65) of its length aligns to that replicon and the aligned
+length is >= `--tag_fragment_min_aligned` (50 kb). Calibrated on all 340 assemblies (minimap2 as above): no
+final accessory plasmid passes (maximum 55.6%, `contig_5_TG159` against pSymB; most < 10%). The large replicon
+pieces (415-935 kb) are >= 69%. The length limit keeps out IS elements, 2-13 kb contigs with copies on pSymA or
+the chromosome. This gives 8 fragments (6 chromosome, 2 pSymA). Fragments count for their replicon in gene
+sharing (Step 13), are treated as main-replicon pieces in the Step 4b review, and are not added to
+`main_replicons.fasta` (one sequence per replicon for the 3-mer composition, as in the publication).
+
 ### 12. Pairwise ANI between accessory plasmids (`skani dist`)
 
 All accessory plasmids (Step 6) are compared all-vs-all with [skani](https://doi.org/10.1038/s41592-023-02018-3)
@@ -515,6 +590,8 @@ Output: `results/14_cointegrates/`
 | `--mash_max_dist`     | `0.1`     | `mash dist -d`                                 |
 | `--mash_max_pvalue`   | `0.1`     | `mash dist -v`                                 |
 | `--mobmess_max_len`   | `1000000` | MobMess clusters are kept only if all members are shorter (bp) |
+| `--repabc_hmms`       | `assets/repabc_hmms.hmm` | RepABC HMMs for the contig markers (Step 4b) |
+| `--review_genomad_score` | `0.9` | Step 4b review B: geNomad plasmid calls without hallmark genes count as a marker from this score |
 | `--bakta_db`          | required  | Bakta database directory (`bakta_db download --type full`) |
 | `--mobsuite_db`       | required  | MOB-suite database directory (`mob_init -d <dir>`) |
 | `--feature_exclude`   | -         | IDs to exclude after manual curation          |
@@ -537,6 +614,8 @@ Output: `results/14_cointegrates/`
 | `--reference_genome`  | -         | reference genome FASTA; enables Step 11       |
 | `--reference_tags`    | `assets/reference_replicon_tags.tsv` | reference replicon `<tab>` tag (Chromosome/pSymA/pSymB) |
 | `--tag_min_ref_cov`   | `30`      | minimum % coverage of the replicon for a tag (0 = publication rule) |
+| `--tag_fragment_min_frac` | `0.65` | fragment tag: minimum fraction of a contig aligned to one replicon |
+| `--tag_fragment_min_aligned` | `50000` | fragment tag: minimum aligned length (bp) |
 | `--eggnog_db`         | -         | eggNOG-mapper data directory; enables the COG analysis |
 | `--cog_min_cluster`   | `3`       | COG enrichment: clusters with > N plasmids (heatmap: ≥ N) |
 | `--gene_sharing`      | `false`   | run Panaroo gene sharing (needs `--reference_genome` and samplesheet `gff`) |
@@ -562,7 +641,7 @@ Output: `results/14_cointegrates/`
 - Bakta 1.12.0 (database v6.0, full) with AMRFinderPlus 4.2.7; MOB-suite 3.1.9
 - MMseqs2 18.8cc5c
 - matplotlib 3.10.5, seaborn 0.13.2, UpSetPlot 0.9.0, pandas 2.3.1, SciPy 1.16.1
-- pyhmmer 0.12.0 and pyrodigal 3.7.1 (TASer-like TA search); DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
+- pyhmmer 0.12.0 and pyrodigal 3.7.1 (RepABC contig markers, TASer-like TA search); RepABC HMMs from TIGRFAMs 15.0 and Pfam 35.0; DefenseFinder 3.0.0 (macsyfinder 2.1.4, models 3.1.0); antiSMASH 8.0.4;
   run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast and SignalP 4.1g (optional, licensed, environment modules)
 - minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12; skani 0.3.2
 - eggNOG-mapper 2.1.13 (MMseqs2 16.747c6, DIAMOND 2.0.15); Panaroo 1.6.0 (CD-HIT 4.8.1, MAFFT 7.526); scikit-learn 1.7.1; statsmodels 0.14.6

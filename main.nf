@@ -16,6 +16,9 @@ include { FLYE_CIRCULARITY      } from './modules/local/flye_circularity'
 include { MOBMESS_SYSTEMS       } from './modules/local/mobmess_systems'
 include { MOBMESS_FILTER_CLUSTERS } from './modules/local/mobmess_filter_clusters'
 include { MOBMESS_NETWORK       } from './modules/local/mobmess_network'
+include { REPABC_HMM            } from './modules/local/repabc_hmm'
+include { CONTIG_MARKERS        } from './modules/local/contig_markers'
+include { ASSEMBLY_GRAPH        } from './modules/local/assembly_graph'
 include { BAKTA                 } from './modules/local/bakta'
 include { MOB_TYPER             } from './modules/local/mob_typer'
 include { PLASMID_FEATURES      } from './modules/local/plasmid_features'
@@ -93,13 +96,16 @@ workflow {
             def bam = row.bam ? file(row.bam, checkIfExists: true) : []
             // Optional whole-genome GFF3 (Bakta) of the same assembly, for gene sharing with the main replicons
             def gff = row.gff ? file(row.gff, checkIfExists: true) : []
-            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true), bam, gff ]
+            // Optional Flye assembly graph (assembly_graph.gfa), for the graph context of linear contigs
+            def graph = row.assembly_graph ? file(row.assembly_graph, checkIfExists: true) : []
+            [ [id: row.sample, dataset: dataset], file(row.assembly, checkIfExists: true), file(row.assembly_info, checkIfExists: true), bam, gff, graph ]
         }
 
-    ch_assemblies    = ch_samples.map { meta, assembly, _info, _bam, _gff -> [ meta, assembly ] }
-    ch_assembly_info = ch_samples.map { meta, _assembly, info, _bam, _gff -> [ meta, info ] }
-    ch_bam           = ch_samples.filter { _m, _a, _i, bam, _g -> bam }.map { meta, _a, _i, bam, _g -> [ meta, bam ] }
-    ch_genome_gff    = ch_samples.filter { _m, _a, _i, _b, gff -> gff }.map { meta, _a, _i, _b, gff -> [ meta, gff ] }
+    ch_assemblies    = ch_samples.map { meta, assembly, _info, _bam, _gff, _graph -> [ meta, assembly ] }
+    ch_assembly_info = ch_samples.map { meta, _assembly, info, _bam, _gff, _graph -> [ meta, info ] }
+    ch_bam           = ch_samples.filter { _m, _a, _i, bam, _g, _gr -> bam }.map { meta, _a, _i, bam, _g, _gr -> [ meta, bam ] }
+    ch_genome_gff    = ch_samples.filter { _m, _a, _i, _b, gff, _gr -> gff }.map { meta, _a, _i, _b, gff, _gr -> [ meta, gff ] }
+    ch_graph         = ch_samples.filter { _m, _a, _i, _b, _g, graph -> graph }.map { meta, _a, info, _b, _g, graph -> [ meta, graph, info ] }
 
     // Fail early on duplicated sample names (they would collide in contig IDs and outputs)
     ch_assemblies
@@ -196,6 +202,20 @@ workflow {
         .map { _meta, tsv -> tsv }
         .mix(PLSDB_SELECT.out.circular)
         .collect()
+
+    // RepABC genes (HMMs) on every filtered contig, and circular-contig counts per assembly
+    REPABC_HMM (
+        ch_small_contigs
+            .join(FLYE_CIRCULARITY.out.circular)
+            .join(ch_assembly_info),
+        file(params.repabc_hmms, checkIfExists: true)
+    )
+
+    // Flye graph context of every contig (samples with an assembly_graph column)
+    ASSEMBLY_GRAPH (
+        ch_graph,
+        params.add_sample_suffix
+    )
 
     MOBMESS_SYSTEMS (
         ch_mobmess_fasta,
@@ -384,6 +404,30 @@ workflow {
             PLSDB_SELECT.out.ids
         )
     }
+
+    // ---------------------------------------------------------------------
+    // Step 4 (review): markers of every filtered sample contig, and linear contigs with
+    // RepABC genes dropped by the MobMess filter. Placed here because the replicon tags
+    // (Step 11, with --reference_genome) are used to leave out chromosome/pSym fragments.
+    // ---------------------------------------------------------------------
+    ch_review_tags = params.reference_genome
+        ? TAG_REPLICONS.out.tags.map { _meta, f -> f }.collect()
+        : channel.value([])
+
+    CONTIG_MARKERS (
+        ch_contig_dataset,
+        REPABC_HMM.out.contig_info.map { _meta, f -> f }.collect(),
+        REPABC_HMM.out.genes.map { _meta, f -> f }.collect(),
+        REPABC_HMM.out.operons.map { _meta, f -> f }.collect(),
+        REPABC_HMM.out.assembly_stats.map { _meta, f -> f }.collect(),
+        GENOMAD_ENDTOEND.out.plasmid_summary.map { _meta, f -> f }.collect(),
+        FLYE_CIRCULARITY.out.coverage.map { _meta, f -> f }.collect(),
+        MOBMESS_SYSTEMS.out.clusters,
+        MOBMESS_FILTER_CLUSTERS.out.ids,
+        ch_review_tags,
+        ASSEMBLY_GRAPH.out.graph.map { _meta, f -> f }.collect().ifEmpty([]),
+        params.review_genomad_score
+    )
 
     // ---------------------------------------------------------------------
     // Step 13: gene content (needs Step 10 annotation)

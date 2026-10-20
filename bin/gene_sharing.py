@@ -69,8 +69,9 @@ def main():
                 f = line.rstrip("\n").split("\t")
                 if len(f) < 2 or f[0] == "contig":
                     continue
-                if f[1] in ("Chromosome", "pSymA", "pSymB"):
-                    contig2replicon[f[0]] = f[1]
+                rep = f[1].removesuffix("_fragment")  # secondary pieces count for their replicon
+                if rep in ("Chromosome", "pSymA", "pSymB"):
+                    contig2replicon[f[0]] = rep
     with open(args.plasmids) as fh:
         acc_contigs = {l.strip() for l in fh if l.strip()}
 

@@ -1,0 +1,54 @@
+// AccPlasPipeline compact workflow (README header). Render:
+//   dot -Tsvg workflow_compact.dot -o workflow_compact.svg && dot -Tpng -Gdpi=300 workflow_compact.dot -o workflow_compact.png
+digraph AccPlasPipelineCompact {
+    graph [rankdir=LR, newrank=true, nodesep=0.3, ranksep=0.4, pad=0.2, fontname="DejaVu Sans", fontsize=12];
+    node  [shape=box, style="rounded,filled", fillcolor=white, color="#555555", fontname="DejaVu Sans", fontsize=11];
+    edge  [color="#666666", arrowsize=0.6];
+
+    in [shape=note, fillcolor="#fff7d6", label="Genome\nassemblies"];
+    pl [shape=note, fillcolor="#fff7d6", label="PLSDB"];
+
+    subgraph cluster_A {
+        label="Candidates"; style="rounded,filled"; fillcolor="#e8f1fb"; color="#9bbbe0";
+        s1  [label="1 · ≤ 1 Mb contigs\nseqkit"];
+        s2  [label="2 · geNomad"];
+        s3  [label="3 · Related PLSDB"];
+        s4  [label="4 · MobMess\nde-replication"];
+        s4b [label="4b · Contig markers\nRepABC HMMs · graph\nreview table"];
+        s5  [label="5 · Network plot"];
+    }
+
+    subgraph cluster_B {
+        label="Accessory plasmids"; style="rounded,filled"; fillcolor="#e9f6ec"; color="#9ccfa8";
+        s6  [label="6 · Plasmid markers\nBakta · MOB-typer"];
+        fin [shape=note, fillcolor="#d6f0dc", penwidth=1.5, label="Accessory\nplasmids"];
+    }
+
+    subgraph cluster_C {
+        label="Characterization"; style="rounded,filled"; fillcolor="#fdf0e4"; color="#e6b98f";
+        typ [label="7–9 · Replicon groups\nRepABC · MobMess · plots"];
+        ann [label="10 · Functional annotation\nTA · defense · BGC · CAZymes"];
+        rep [label="11 · Copy number\n3-mer composition"];
+        ani [label="12 · Pairwise ANI\nskani"];
+        gc  [label="13 · Gene content\nCOG · gene sharing · signal peptides"];
+        coi [style="rounded,filled,dashed", label="14 · Cointegrates\n(under revision)"];
+    }
+
+    in -> s1;
+    pl -> s3;
+    s1 -> s2;
+    s1 -> s4;
+    s3 -> s4;
+    s4 -> s5;
+    s4 -> s4b;
+    s2 -> s4b [style=dashed];
+    s4 -> s6;
+    s2 -> s6 [style=dashed];
+    s6 -> fin;
+    fin -> typ;
+    fin -> ann;
+    fin -> rep;
+    fin -> ani;
+    fin -> gc;
+    fin -> coi [style=dashed];
+}
