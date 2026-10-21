@@ -12,35 +12,45 @@ not used as parents.
 Cointegrate: two parents from different systems that each cover >= --min-part of the compound,
 overlap by <= --max-overlap (of the smaller covered length) and together cover >= --min-union.
 
-Extra sequence: every region >= --min-segment bp not covered by any parent (circular-aware). Its
+Extra sequence: every region >= --min-segment bp not covered by the parent (circular-aware). Its
 content is read from several sources, all reported as hints (ICE / IME / phage annotations are
 not well established):
-  replication    RepABC HMM genes (Step 4b), MOB-typer replicon hits, Bakta replication genes
+  replication    RepABC HMM genes (Step 4b); or a MOB-typer replicon hit on a gene that Bakta also names as a
+                 replication protein (both must agree). Unconfirmed MOB-typer hits are listed, not used.
   relaxase       MOB-typer relaxase, geNomad CONJscan MOB*, Bakta relaxase / mobilization names
   MPF / T4SS     MOB-typer mate-pair-formation, geNomad CONJscan T4SS genes, Bakta conjugation names
+                 (relaxases excluded); accepted only when >= 2 of the 3 tools report MPF in the region
+                 (tools, not genes: two tools hitting one gene qualify). See README Step 14,
+                 "How each label is assigned", for the exact rules and caveats.
   integrase      Bakta integrase / site-specific recombinase names (not Tn3 resolvases)
   transposase    Bakta transposase / IS names
   phage          geNomad proviruses overlapping the region, geNomad virus hallmark genes, Bakta phage
                  structural gene names (terminase, capsid, portal, tail, baseplate, holin ...)
 Class (first match):
   phage-plasmid               replication + phage
-  plasmid-derived (second parent absent)   replication, no other sequence covers >= 80% of the region:
+  Rep and Integrase           replication + integrase inside the region: a second plasmid or an
+                              integrative element carrying a Rep; not resolved
+  Rep (second parent absent)   replication, no other sequence covers >= 80% of the region:
                               the region likely came from a second plasmid that is not in the dataset
                               (the first parent, the backbone, always is)
-  plasmid-derived (second parent present)  replication, another sequence covers >= 80% of the region
-  phage                       provirus covering >= 50% of the provirus, or >= 2 phage structural genes
+  Rep (second parent present)  replication, another sequence covers >= 80% of the region
   ICE-like                    integrase + relaxase + MPF
   IME-like                    integrase + relaxase
-  integrative element         integrase inside or at an end, no relaxase found
-  MOB/MPF module              relaxase and/or MPF without integrase
-  transposon acquisition      transposase inside or at an end
-  other
+  MOB/MPF                     relaxase and/or MPF not meeting ICE-like / IME-like (an integrase may
+                              be present with MPF only; see the integrase column)
+Regions matching none of these are left unclassified (empty class). Only genes inside the region set
+the class; integrase / transposase genes within --window of an end are listed, marked "(end)".
 The best match among the other MobMess sequences (largest share of the region aligned; same
 cluster and sequences containing the whole plasmid skipped) shows whether the extra sequence
 exists elsewhere in the data.
 
-Outputs: compound_parents.tsv, extra_segments.tsv, cointegrates.tsv, integration_summary.tsv,
-         cointegrate_junction_genes.tsv, integration_map.png/.svg
+Extra sequence is computed per parent system (compound vs each parent separately, never merged), so a
+region absent from one parent but carried by another is kept; in_other_parents gives the share of the
+region found in the compound's other parents.
+
+Outputs: compound_parents.tsv, extra_segments.tsv, extra_segment_genes.tsv, cointegrates.tsv,
+         integration_summary.tsv (one row per compound-parent pair), cointegrate_junction_genes.tsv,
+         integration_map.png/.svg
 """
 import argparse
 import csv
@@ -51,8 +61,8 @@ import sys
 from collections import defaultdict
 
 csv.field_size_limit(sys.maxsize)
-REPLICATION = re.compile(r"replication|\brep[ABC]\b", re.I)
 RELAXASE = re.compile(r"relaxase|mobilization|\bmob[A-Z]\b", re.I)
+REP_NAME = re.compile(r"replication|replicase|\brep[A-Z]?\b", re.I)   # only to corroborate MOB-typer
 MPF = re.compile(r"type IV secret|conjugal|conjugative transfer|\bTra[A-Z]\b|\bTrb[A-Z]\b|\bVirB\d*", re.I)
 INTEGRASE = re.compile(r"integrase|site-specific (DNA )?recombinase|recombinase", re.I)
 RESOLVASE = re.compile(r"resolvase|Tn3", re.I)
@@ -61,11 +71,11 @@ TRANSPOSASE = re.compile(r"transposase|insertion (sequence|element)|\bIS\d", re.
 PHAGE = re.compile(r"terminase|capsid|portal protein|tail (fiber|fibre|tube|sheath|tape|assembly|protein)|"
                    r"baseplate|prohead|head-tail|head (morphogenesis|decoration|completion)|holin|virion", re.I)
 MOBILE = re.compile(r"transposase|resolvase|integrase|recombinase|insertion element|\bTn3\b", re.I)
-CLASSES = ["phage-plasmid", "plasmid-derived (second parent absent)", "plasmid-derived (second parent present)", "phage", "ICE-like", "IME-like",
-           "integrative element", "MOB/MPF module", "transposon acquisition", "other"]
-COLORS = {"parent": "#BBBBBB", "phage-plasmid": "#8c564b", "plasmid-derived (second parent absent)": "#D55E00",
-          "plasmid-derived (second parent present)": "#f0a070", "phage": "#9467bd", "ICE-like": "#0072B2", "IME-like": "#56B4E9", "integrative element": "#009E73",
-          "MOB/MPF module": "#CC79A7", "transposon acquisition": "#E69F00", "other": "#e0e0e0"}
+CLASSES = ["phage-plasmid", "Rep and Integrase", "Rep (second parent absent)", "Rep (second parent present)",
+           "ICE-like", "IME-like", "MOB/MPF"]
+COLORS = {"parent": "#BBBBBB", "": "#FFFFFF", "phage-plasmid": "#8c564b", "Rep and Integrase": "#009E73",
+          "Rep (second parent absent)": "#D55E00", "Rep (second parent present)": "#f0a070",
+          "ICE-like": "#0072B2", "IME-like": "#56B4E9", "MOB/MPF": "#CC79A7"}
 
 
 def parse_args():
@@ -85,6 +95,8 @@ def parse_args():
     p.add_argument("--min-union", type=float, default=0.8)
     p.add_argument("--min-segment", type=int, default=5000, help="minimum extra region (bp)")
     p.add_argument("--window", type=int, default=5000, help="genes within this distance of a region end")
+    p.add_argument("--rename", default=None,
+                   help="optional TSV (header; columns 1-2 = old, new sample name) to rename samples in the outputs")
     return p.parse_args()
 
 
@@ -123,7 +135,8 @@ def gaps(iv, xl, circular):
         return [(1, xl)]
     g = [(iv[k][1] + 1, iv[k + 1][0] - 1) for k in range(len(iv) - 1)]
     if circular:
-        g.append((iv[-1][1] + 1, iv[0][0] - 1 + xl))
+        a, e = iv[-1][1] + 1, iv[0][0] - 1 + xl
+        g.append((a - xl, e - xl) if a > xl else (a, e))      # last block ends at xl: gap does not wrap
     else:
         g += [(1, iv[0][0] - 1), (iv[-1][1] + 1, xl)]
     return [x for x in g if x[1] >= x[0]]
@@ -195,13 +208,16 @@ def main():
     for r in read_tsv(args.repabc):
         if r["#Sequence Id"] in X:
             ev[r["#Sequence Id"]]["replication"].append((int(r["Start"]), int(r["Stop"]), f"{r['Gene']} (HMM)"))
+    mob_rep = defaultdict(list)
     for r in read_tsv(args.mob_biomarker):
         c = r.get("sseqid")
         if c in X:
             s, e = sorted((int(r["sstart"]), int(r["send"])))
             kind = {"replicon": "replication", "relaxase": "relaxase", "mate-pair-formation": "MPF",
                     "oriT": "relaxase"}.get(r["biomarker"])
-            if kind:
+            if kind == "replication":
+                mob_rep[c].append((s, e))           # confirmed against Bakta below
+            elif kind:
                 ev[c][kind].append((s, e, f"{r['biomarker']} (MOB-typer)"))
     for r in read_tsv(args.genomad_genes):
         c = r["gene"].rsplit("_", 1)[0]
@@ -219,11 +235,9 @@ def main():
             ev[c]["provirus"].append((s, e, f"provirus {s}-{e} (geNomad, score {r.get('virus_score', '?')})"))
     for c, gs in genes.items():
         for s, e, locus, g, prod in gs:
-            if REPLICATION.search(prod):
-                ev[c]["replication"].append((s, e, f"{g or prod} (Bakta)"))
             if RELAXASE.search(prod):
                 ev[c]["relaxase"].append((s, e, f"{g or prod} (Bakta)"))
-            if MPF.search(prod):
+            if MPF.search(prod) and not RELAXASE.search(prod):      # TraA-type relaxases are not MPF
                 ev[c]["MPF"].append((s, e, f"{g or prod} (Bakta)"))
             if INTEGRASE.search(prod) and not RESOLVASE.search(prod):
                 ev[c]["integrase"].append((s, e, f"{g or prod} (Bakta)"))
@@ -231,6 +245,17 @@ def main():
                 ev[c]["transposase"].append((s, e, f"{g or prod} (Bakta)"))
             if PHAGE.search(prod):
                 ev[c]["phage gene"].append((s, e, f"{g or prod} (Bakta)"))
+
+    # MOB-typer replicon hits count as replication only when Bakta names the same gene a replication protein
+    for c, hits in mob_rep.items():
+        for s, e in hits:
+            same = [g for g in genes.get(c, []) if min(e, g[1]) - max(s, g[0]) + 1 >= 0.5 * (e - s + 1)]
+            named = [g for g in same if REP_NAME.search(g[4])]
+            if named:
+                ev[c]["replication"].append((s, e, f"replicon (MOB-typer + Bakta: {named[0][3] or named[0][4]})"))
+            else:
+                prod = same[0][4] if same else "no Bakta CDS"
+                ev[c]["replication unconfirmed"].append((s, e, f"replicon (MOB-typer only; Bakta: {prod})"))
 
     def best_member(x, system):
         best = (None, [])
@@ -248,7 +273,7 @@ def main():
         return [g for g in genes.get(x, [])
                 if any(g[1] + sh >= p - w and g[0] + sh <= p + w for p in points for sh in shifts)]
 
-    parent_rows, seg_rows, coint_rows, summary_rows, gene_rows = [], [], [], [], []
+    parent_rows, seg_rows, coint_rows, summary_rows, gene_rows, region_gene_rows = [], [], [], [], [], []
     for x in sorted(compounds):
         xl = xlen.get(x)
         if not xl:
@@ -302,76 +327,105 @@ def main():
             gene_rows += [{"type": "cointegrate junction", "plasmid": x, "start": g[0], "end": g[1], "locus": g[2],
                            "gene": g[3], "product": g[4]} for g in jg if MOBILE.search(g[4])]
 
-        # Extra sequence: not covered by any parent
-        core = merge([list(t) for _, _, cur in parents for t in cur])
+        # Extra sequence, per parent system: regions of the compound not covered by that system's parent
+        # (no merging across systems, so a region one parent lacks but another carries is kept)
         own = {c for c, r in clusters.items() if r["cluster"] == cl["cluster"]}
-        parent_seqs = {m for _, m, _ in parents}
-        classes = []
-        for a, e in (g for g in gaps(core, xl, circular) if g[1] - g[0] + 1 >= args.min_segment):
-            region = unwrap(a, e, xl)
-            e_pos = e if e <= xl else e - xl
-            seg_bp = e - a + 1
-            ends = near(x, [a, e_pos], xl, circular)
-            hit = {kind: [lab for s_, t_, lab in ev[x][kind] if inside(s_, t_, region)]
-                   for kind in ("replication", "relaxase", "MPF", "integrase", "transposase", "phage gene")}
-            pro = [(s_, t_, lab) for s_, t_, lab in ev[x]["provirus"]
-                   if sum(max(0, min(t_, re_) - max(s_, ra) + 1) for ra, re_ in region) >= 0.5 * (t_ - s_ + 1)]
-            int_end = [f"{g[3] or g[4]} (Bakta, end)" for g in ends
-                       if INTEGRASE.search(g[4]) and not RESOLVASE.search(g[4]) and not inside(g[0], g[1], region)]
-            tn_end = [f"{g[3] or g[4]} (Bakta, end)" for g in ends
-                      if (TRANSPOSASE.search(g[4]) or RESOLVASE.search(g[4])) and not inside(g[0], g[1], region)]
-            donor, dcov = None, 0
-            for m in partners_of[x]:
-                if m in own or m in parent_seqs:
-                    continue
-                mi = merge(iv[(x, m)])
-                if length(mi) >= 0.8 * xl:
-                    continue
-                c = length(intersect(mi, merge(region)))
-                if c > dcov:
-                    donor, dcov = m, c
-            in_data = dcov >= 0.8 * seg_bp
-            phage = bool(pro) or len(hit["phage gene"]) >= 2
-            integ = bool(hit["integrase"] or int_end)
-            if hit["replication"] and phage:
-                cls = "phage-plasmid"
-            elif hit["replication"]:
-                cls = "plasmid-derived (second parent present)" if in_data else "plasmid-derived (second parent absent)"
-            elif phage:
-                cls = "phage"
-            elif integ and hit["relaxase"] and hit["MPF"]:
-                cls = "ICE-like"
-            elif integ and hit["relaxase"]:
-                cls = "IME-like"
-            elif integ:
-                cls = "integrative element"
-            elif hit["relaxase"] or hit["MPF"]:
-                cls = "MOB/MPF module"
-            elif hit["transposase"] or tn_end:
-                cls = "transposon acquisition"
-            else:
-                cls = "other"
-            classes.append(cls)
-            uniq = lambda lst: ";".join(dict.fromkeys(lst))
-            seg_rows.append({
-                "plasmid": x, "cluster": cl["cluster"], "length": xl, "start": a, "end": e_pos, "segment_bp": seg_bp,
-                "class": cls, "replication": uniq(hit["replication"]), "relaxase": uniq(hit["relaxase"]),
-                "MPF": uniq(hit["MPF"]), "integrase": uniq(hit["integrase"] + int_end),
-                "transposase": uniq(hit["transposase"] + tn_end),
-                "phage": uniq([lab for _, _, lab in pro] + hit["phage gene"]),
-                "genes": sum(inside(g[0], g[1], region) for g in genes.get(x, [])),
-                "best_match": donor or "", "best_match_cluster": clusters.get(donor, {}).get("cluster", ""),
-                "best_match_type": clusters.get(donor, {}).get("cluster_type", ""),
-                "best_match_fraction": round(dcov / seg_bp, 3), "source_in_dataset": int(in_data)})
-            gene_rows += [{"type": f"segment end ({cls})", "plasmid": x, "start": g[0], "end": g[1], "locus": g[2],
-                           "gene": g[3], "product": g[4]} for g in ends if MOBILE.search(g[4])]
+        uniq = lambda lst: ";".join(dict.fromkeys(lst))
+        for s_name, m_par, core in parents:
+            other_parents = [(s2, m2, merge(list(t) for t in c2)) for s2, m2, c2 in parents if s2 != s_name]
+            classes = []
+            for a, e in (g for g in gaps(core, xl, circular) if g[1] - g[0] + 1 >= args.min_segment):
+                region = unwrap(a, e, xl)
+                e_pos = e if e <= xl else e - xl
+                seg_bp = e - a + 1
+                ends = near(x, [a, e_pos], xl, circular)
+                hit = {kind: [lab for s_, t_, lab in ev[x][kind] if inside(s_, t_, region)]
+                       for kind in ("replication", "replication unconfirmed", "relaxase", "MPF", "integrase",
+                                    "transposase", "phage gene")}
+                # MPF accepted only when >= 2 of MOB-typer / geNomad CONJscan / Bakta report it
+                mpf_src = sorted({lab.rsplit("(", 1)[1].rstrip(")") for lab in hit["MPF"]})
+                mpf = len(mpf_src) >= 2
+                pro = [(s_, t_, lab) for s_, t_, lab in ev[x]["provirus"]
+                       if sum(max(0, min(t_, re_) - max(s_, ra) + 1) for ra, re_ in region) >= 0.5 * (t_ - s_ + 1)]
+                int_end = [f"{g[3] or g[4]} (Bakta, end)" for g in ends
+                           if INTEGRASE.search(g[4]) and not RESOLVASE.search(g[4]) and not inside(g[0], g[1], region)]
+                tn_end = [f"{g[3] or g[4]} (Bakta, end)" for g in ends
+                          if (TRANSPOSASE.search(g[4]) or RESOLVASE.search(g[4])) and not inside(g[0], g[1], region)]
+                # Share of the region carried by the compound's other parents (other MobMess systems)
+                other_cov = [(s2, length(intersect(c2, merge(region))) / seg_bp) for s2, _, c2 in other_parents]
+                # Best match among the other MobMess sequences (other parents included, this parent and the
+                # compound's own cluster skipped, sequences containing the whole compound skipped)
+                donor, dcov = None, 0
+                for m in partners_of[x]:
+                    if m in own or m == m_par:
+                        continue
+                    mi = merge(iv[(x, m)])
+                    if length(mi) >= 0.8 * xl:
+                        continue
+                    c = length(intersect(mi, merge(region)))
+                    if c > dcov:
+                        donor, dcov = m, c
+                in_data = dcov >= 0.8 * seg_bp
+                phage = bool(pro) or len(hit["phage gene"]) >= 2
+                integ = bool(hit["integrase"])
+                if hit["replication"] and phage:
+                    cls = "phage-plasmid"
+                elif hit["replication"] and integ:
+                    cls = "Rep and Integrase"
+                elif hit["replication"]:
+                    cls = "Rep (second parent present)" if in_data else "Rep (second parent absent)"
+                elif integ and hit["relaxase"] and mpf:
+                    cls = "ICE-like"
+                elif integ and hit["relaxase"]:
+                    cls = "IME-like"
+                elif hit["relaxase"] or mpf:
+                    cls = "MOB/MPF"
+                else:
+                    cls = ""                     # not one of the classes of interest
+                classes.append(cls)
+                rid = f"{x}|{s_name}|{a}-{e_pos}"
+                seg_rows.append({
+                    "region_id": rid, "plasmid": x, "cluster": cl["cluster"], "length": xl, "system": s_name,
+                    "parent": m_par, "parent_cluster": systems[s_name]["backbone_cluster"],
+                    "start": a, "end": e_pos, "segment_bp": seg_bp,
+                    "class": cls, "replication": uniq(hit["replication"]), "relaxase": uniq(hit["relaxase"]),
+                    "replication_unconfirmed": uniq(hit["replication unconfirmed"]),
+                    "MPF": uniq(hit["MPF"]), "MPF_sources": ",".join(mpf_src), "MPF_accepted": int(mpf),
+                    "integrase": uniq(hit["integrase"] + int_end),
+                    "transposase": uniq(hit["transposase"] + tn_end),
+                    "phage": uniq([lab for _, _, lab in pro] + hit["phage gene"]),
+                    "genes": sum(inside(g[0], g[1], region) for g in genes.get(x, [])),
+                    "in_other_parents": ";".join(f"{s2}:{f:.2f}" for s2, f in other_cov if f > 0),
+                    "best_match": donor or "", "best_match_cluster": clusters.get(donor, {}).get("cluster", ""),
+                    "best_match_type": clusters.get(donor, {}).get("cluster_type", ""),
+                    "best_match_fraction": round(dcov / seg_bp, 3), "source_in_dataset": int(in_data)})
+                # Genes of the region (input for functional annotation of what the compound acquired)
+                region_gene_rows += [{"region_id": rid, "plasmid": x, "system": s_name, "class": cls,
+                                      "start": g[0], "end": g[1], "locus": g[2], "gene": g[3], "product": g[4]}
+                                     for g in genes.get(x, []) if inside(g[0], g[1], region)]
+                gene_rows += [{"type": f"segment end ({cls})", "plasmid": x, "start": g[0], "end": g[1],
+                               "locus": g[2], "gene": g[3], "product": g[4]} for g in ends if MOBILE.search(g[4])]
 
-        summary_rows.append({
-            "plasmid": x, "cluster": cl["cluster"], "length": xl, "parents": len(parents),
-            "parent_backbone_clusters": "|".join(systems[s]["backbone_cluster"] for s, _, _ in parents),
-            "covered_by_parents_bp": length(core), "extra_segments": len(classes),
-            "extra_bp": xl - length(core), "cointegrate": int(bool(best_pair)),
-            **{c: classes.count(c) for c in CLASSES}})
+            summary_rows.append({
+                "plasmid": x, "cluster": cl["cluster"], "length": xl, "system": s_name, "parent": m_par,
+                "parent_cluster": systems[s_name]["backbone_cluster"], "parents": len(parents),
+                "covered_by_parent_bp": length(core), "extra_segments": len(classes),
+                "extra_bp": xl - length(core), "cointegrate": int(bool(best_pair)),
+                **{c: classes.count(c) for c in CLASSES}, "unclassified": classes.count("")})
+
+    # Optional sample renaming (e.g. old -> NCBI strain names), applied to every text field of the outputs
+    if args.rename:
+        with open(args.rename) as fh:
+            next(fh)
+            names = [line.rstrip("\n").split("\t")[:2] for line in fh if line.strip()]
+        names.sort(key=lambda kv: -len(kv[0]))          # longest first, so no name is replaced inside another
+        rx = re.compile("|".join(re.escape(o) for o, _ in names))
+        new = dict(names)
+        for rows in (parent_rows, seg_rows, coint_rows, summary_rows, gene_rows, region_gene_rows):
+            for r in rows:
+                for k, v in r.items():
+                    if isinstance(v, str):
+                        r[k] = rx.sub(lambda m: new[m.group(0)], v)
 
     def write(path, rows, cols):
         with open(path, "w", newline="") as out:
@@ -382,50 +436,64 @@ def main():
     write("compound_parents.tsv", parent_rows,
           ["plasmid", "cluster", "length", "circular", "systems", "plasmid_parents", "non_plasmid_backbones", "note"])
     write("extra_segments.tsv", seg_rows,
-          ["plasmid", "cluster", "length", "start", "end", "segment_bp", "class", "replication", "relaxase", "MPF",
-           "integrase", "transposase", "phage", "genes", "best_match", "best_match_cluster", "best_match_type",
-           "best_match_fraction", "source_in_dataset"])
+          ["region_id", "plasmid", "cluster", "length", "system", "parent", "parent_cluster", "start", "end",
+           "segment_bp", "class", "replication", "replication_unconfirmed", "relaxase", "MPF", "MPF_sources",
+           "MPF_accepted", "integrase", "transposase", "phage", "genes",
+           "in_other_parents", "best_match", "best_match_cluster", "best_match_type", "best_match_fraction",
+           "source_in_dataset"])
+    write("extra_segment_genes.tsv", region_gene_rows,
+          ["region_id", "plasmid", "system", "class", "start", "end", "locus", "gene", "product"])
     write("cointegrates.tsv", coint_rows,
           ["plasmid", "cluster", "length", "system_1", "backbone_cluster_1", "backbone_1", "covered_kb_1", "fraction_1",
            "system_2", "backbone_cluster_2", "backbone_2", "covered_kb_2", "fraction_2", "overlap", "union",
            "junctions", "mobile_genes_at_junctions"])
     write("integration_summary.tsv", summary_rows,
-          ["plasmid", "cluster", "length", "parents", "parent_backbone_clusters", "covered_by_parents_bp",
-           "extra_segments", "extra_bp", "cointegrate"] + CLASSES)
+          ["plasmid", "cluster", "length", "system", "parent", "parent_cluster", "parents", "covered_by_parent_bp",
+           "extra_segments", "extra_bp", "cointegrate"] + CLASSES + ["unclassified"])
     write("cointegrate_junction_genes.tsv", gene_rows, ["type", "plasmid", "start", "end", "locus", "gene", "product"])
     plot(summary_rows, seg_rows)
     n_par = sum(1 for r in parent_rows if r["plasmid_parents"])
-    print(f"{len(parent_rows)} compound accessory plasmids, {n_par} with a plasmid parent; {len(seg_rows)} extra "
-          f"segments >= {args.min_segment} bp; cointegrates: {len(coint_rows)}")
+    print(f"{len(parent_rows)} compound accessory plasmids, {n_par} with a plasmid parent ({len(summary_rows)} "
+          f"compound-parent pairs); {len(seg_rows)} extra segments >= {args.min_segment} bp; "
+          f"cointegrates: {len(coint_rows)}")
 
 
 def plot(summary_rows, seg_rows):
-    """One bar per compound plasmid (by length): parent-covered sequence and extra segments by class."""
+    """One bar per compound-parent pair (by length): sequence covered by that parent and extra segments by class."""
     os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
 
-    rows = sorted(summary_rows, key=lambda r: r["length"])
-    fig, ax = plt.subplots(figsize=(7, max(3, 0.06 * len(rows) + 1)))
+    rows = sorted(summary_rows, key=lambda r: (r["length"], r["plasmid"], r["system"]))
+    fig, ax = plt.subplots(figsize=(7, max(3, 0.1 * len(rows) + 1)))
     segs = defaultdict(list)
     for s in seg_rows:
-        segs[s["plasmid"]].append(s)
+        segs[(s["plasmid"], s["system"])].append(s)
     for i, r in enumerate(rows):
         ax.barh(i, r["length"] / 1000, color=COLORS["parent"], height=0.8, linewidth=0)
-        for s in segs[r["plasmid"]]:
+        for s in segs[(r["plasmid"], r["system"])]:
             for a, e in unwrap(s["start"], s["start"] + s["segment_bp"] - 1, r["length"]):
-                ax.barh(i, (e - a + 1) / 1000, left=(a - 1) / 1000, color=COLORS[s["class"]], height=0.8, linewidth=0)
+                # unclassified regions: white, outlined (not in the parent, no class of interest)
+                ax.barh(i, (e - a + 1) / 1000, left=(a - 1) / 1000, color=COLORS[s["class"]], height=0.8,
+                        linewidth=0 if s["class"] else 0.3, edgecolor="#888888")
         if r["cointegrate"]:
             ax.text(r["length"] / 1000 + 3, i, "cointegrate", va="center", fontsize=5)
     used = {s["class"] for s in seg_rows}
-    ax.set_yticks([])
-    ax.set_ylabel(f"Compound accessory plasmids with a plasmid parent (n = {len(rows)})")
+    # Row labels: plasmid, its MobMess cluster, and the parent system / backbone cluster it is compared with
+    ax.set_yticks(range(len(rows)))
+    ax.set_yticklabels([f"{r['plasmid']}  (cl {r['cluster']})  vs {r['system']} (cl {r['parent_cluster']})"
+                        for r in rows], fontsize=5)
+    ax.tick_params(axis="y", length=0)
+    ax.set_ylim(-0.7, len(rows) - 0.3)
+    ax.set_ylabel(f"Compound plasmid vs parent system (n = {len(rows)} pairs)")
     ax.set_xlabel("Position (kb)")
     ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(handles=[Patch(color=COLORS["parent"], label="covered by parent plasmid(s)")] +
-              [Patch(color=COLORS[c], label=c) for c in CLASSES if c in used],
+    ax.legend(handles=[Patch(color=COLORS["parent"], label="covered by the parent")] +
+              [Patch(color=COLORS[c], label=c) for c in CLASSES if c in used] +
+              ([Patch(facecolor="white", edgecolor="#888888", linewidth=0.5, label="not in parent, unclassified")]
+               if "" in used else []),
               frameon=False, fontsize=6, loc="lower right")
     fig.savefig("integration_map.png", dpi=300, bbox_inches="tight")
     fig.savefig("integration_map.svg", bbox_inches="tight")

@@ -2,7 +2,7 @@
  * Compound plasmids vs their parent plasmid backbones (MobMess Step 4 run, whose cluster IDs are
  * the ones in the publication): cointegrates (two complementary parents) and the extra sequence
  * not present in the parent, classified from RepABC HMM, MOB-typer, geNomad and Bakta hints as
- * plasmid / phage / ICE-like / IME-like / integrative element / MOB-MPF module / transposon
+ * Rep / Rep and Integrase / phage-plasmid / ICE-like / IME-like / MOB-MPF (others unclassified)
  * (bin/cointegrates.py).
  */
 process COINTEGRATES {
@@ -26,6 +26,7 @@ process COINTEGRATES {
     path "cointegrates.tsv"              , emit: cointegrates
     path "compound_parents.tsv"          , emit: parents
     path "extra_segments.tsv"            , emit: segments
+    path "extra_segment_genes.tsv"       , emit: segment_genes
     path "integration_summary.tsv"       , emit: summary
     path "cointegrate_junction_genes.tsv", emit: genes
     path "integration_map.{png,svg}"     , emit: figures
@@ -61,7 +62,7 @@ process COINTEGRATES {
 
     stub:
     """
-    touch cointegrates.tsv compound_parents.tsv extra_segments.tsv integration_summary.tsv \\
+    touch cointegrates.tsv compound_parents.tsv extra_segments.tsv extra_segment_genes.tsv integration_summary.tsv \\
         cointegrate_junction_genes.tsv integration_map.png integration_map.svg
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

@@ -561,63 +561,101 @@ the compound is taken from MobMess's alignment blocks (`*_ani_blocks.txt`). It i
 - **Cointegrate**: two parents from different systems that each cover >= `--cointegrate_min_part` (0.2) of the
   compound, overlap by <= `--cointegrate_max_overlap` (0.2) and together cover >= `--cointegrate_min_union` (0.8).
   The mobile-element genes within `--junction_window` (5 kb) of the junctions are listed.
-- **Extra sequence**: every region >= `--segment_min_bp` (5 kb) not present in any parent. Its content is read from
-  several sources and reported as hints, since ICE / IME / phage annotations are not well established:
+- **Extra sequence**: computed **per parent system**. For each compound and each of its plasmid parents, every region
+  >= `--segment_min_bp` (5 kb) not present in that parent. Parents are never merged, so a region one parent lacks but
+  another parent carries is kept (`in_other_parents` gives the share of the region found in each other parent). A
+  compound with two parent systems therefore gets two rows in the summary and map. Its content is read from
+  several sources and reported as hints, since ICE / IME / phage annotations are not well established.
 
-| hint | sources |
-|---|---|
-| replication | RepABC HMM genes (Step 4b), MOB-typer replicon hits, Bakta replication genes |
-| relaxase / mobilization | MOB-typer relaxase / oriT, geNomad CONJscan `MOB*`, Bakta relaxase / mobilization names |
-| MPF / T4SS | MOB-typer mate-pair formation, geNomad CONJscan T4SS genes (`T_virB*`, `F_tra*`, …), Bakta conjugation names |
-| integrase | Bakta integrase / site-specific recombinase, inside the region or at an end (Tn3 resolvases excluded) |
-| transposase | Bakta transposase / IS / resolvase names, inside or at an end |
-| phage | geNomad proviruses (>= 50% inside the region), geNomad virus hallmark genes, Bakta virion gene names (terminase, capsid, portal, tail, baseplate, holin) |
+#### How each label is assigned
 
-Each region gets the first matching class:
-1. **phage-plasmid**: replication + phage.
-2. **plasmid-derived (second parent absent)**: replication, and no other MobMess sequence covers >= 80% of the
-   region. The first parent (the backbone) is in the dataset; the Rep-carrying region most likely came from a second
-   plasmid that is not (not sampled, or no longer free).
-3. **plasmid-derived (second parent present)**: replication, and another sequence covers >= 80% of the region (the
-   probable second parent). When both parents are backbones that together make up the compound, it is a cointegrate.
-4. **phage**: a provirus, or >= 2 phage structural genes.
-5. **ICE-like**: integrase + relaxase + MPF.
-6. **IME-like**: integrase + relaxase.
-7. **integrative element**: integrase, no relaxase found.
-8. **MOB/MPF module**: relaxase and/or MPF without integrase.
-9. **transposon acquisition**: transposase inside or at an end.
-10. **other**.
+**Step 1. Evidence ("hints") in each region.** A gene counts for a region when >= 50% of its length lies inside
+the region. Genes within `--junction_window` (5 kb) of a region end but outside it are listed with `(end)` in the
+`integrase` / `transposase` columns and **never** set the class.
 
-The best match among the other MobMess sequences (same cluster and sequences containing the whole plasmid skipped)
-and `source_in_dataset` (>= 80% of the region) show whether the extra sequence exists elsewhere in the data.
+| hint | accepted when | sources and exact rules | column(s) |
+|---|---|---|---|
+| **replication (Rep)** | one HMM hit, **or** MOB-typer and Bakta agree on the same gene | RepABC HMM (Step 4b: RepA / RepB / RepC, Pfam/TIGRFAM gathering cut-offs) is accepted alone. A MOB-typer `replicon` hit is accepted only when it overlaps (>= 50% of the hit) a Bakta CDS whose product matches `replication\|replicase\|\brep[A-Z]?\b`. A MOB-typer hit without that support is listed but not used. Bakta names alone are never used | `replication`, `replication_unconfirmed` |
+| **relaxase (MOB)** | any one source | MOB-typer `relaxase` or `oriT`; geNomad CONJscan `MOB*`; Bakta product matching `relaxase\|mobilization\|\bmob[A-Z]\b` | `relaxase` |
+| **MPF** | **>= 2 of the 3 tools** report MPF in the region (any genes) | MOB-typer `mate-pair-formation`; geNomad CONJscan non-MOB components (`T_virB*`, `F_tra*`, `I_tra*`, …); Bakta product matching `type IV secret\|conjugal\|conjugative transfer\|\bTra[A-Z]\b\|\bTrb[A-Z]\b\|\bVirB` that is not a relaxase (so TraA is not MPF) | `MPF` (all hits), `MPF_sources`, `MPF_accepted` |
+| **integrase** | any Bakta gene inside | Bakta product matching `integrase\|site-specific (DNA) recombinase\|recombinase`, excluding `resolvase\|Tn3` | `integrase` |
+| **phage** | a provirus, or >= 2 phage genes | geNomad provirus with >= 50% of it inside the region; or >= 2 genes that are geNomad virus hallmarks or Bakta virion genes (`terminase`, `capsid`, `portal protein`, `tail …`, `baseplate`, `prohead`, `head-tail`, `holin`, `virion`) | `phage` |
+| transposase | listed only | Bakta product matching `transposase\|insertion sequence/element\|\bIS\d`, plus resolvases / Tn3 | `transposase` |
+
+**Step 2. Class: the first rule that matches.**
+
+| # | class | rule | meaning |
+|---|---|---|---|
+| 1 | **phage-plasmid** | Rep + phage | a phage-plasmid carried into the compound |
+| 2 | **Rep and Integrase** | Rep + integrase | a second plasmid carrying an integrase, or an integrative element carrying a Rep (not resolved) |
+| 3 | **Rep (second parent absent)** | Rep, and no other MobMess sequence covers >= 80% of the region | sequence from a second plasmid that is not in the dataset. The first parent (the backbone) always is |
+| 4 | **Rep (second parent present)** | Rep, and another sequence covers >= 80% of the region | the probable second parent is in the dataset (`best_match`) |
+| 5 | **ICE-like** | integrase + relaxase + MPF (accepted) | integrative and conjugative element |
+| 6 | **IME-like** | integrase + relaxase | integrative and mobilizable element |
+| 7 | **MOB/MPF** | relaxase and/or MPF (accepted), not meeting 5-6 | mobilization / conjugation module |
+| - | *unclassified* (empty) | none of the above | hints still listed; an integrase or a transposase alone is not a class |
+
+**Caveats when reading the labels.**
+- Rep always wins: a region with a Rep and an integrase is "Rep and Integrase" even when it also has a relaxase.
+- The MPF rule counts **tools, not genes**. Two tools that hit the same gene meet it.
+- A MOB-typer `MPF_<type>` label names the conjugative-system type of the reference protein it matched. It does not
+  show that a complete mating-pair channel is present. Example: the 59 kb module of cluster 164 is ICE-like on a
+  single gene (HOBFBD_0119 in contig_1_TG65, 307 aa; Bakta "type IV secretory system conjugative DNA transfer family
+  protein"). That gene matches residues 1-272 of a 554-aa MOB-typer `MPF_T` reference (83% identity), and CONJscan
+  finds no MPF component in the region. The same module in contig_7_TG123 (cluster 201), where only Bakta reports
+  MPF, is IME-like.
+- ICE / IME / phage labels are hints from gene annotations, not verified element boundaries. Check the hint columns
+  and `extra_segment_genes.tsv` before interpreting a region.
+
+The best match among the other MobMess sequences (the compound's other parents included; this parent, the same
+cluster and sequences containing the whole plasmid skipped) and `source_in_dataset` (>= 80% of the region) show
+whether the extra sequence exists elsewhere in the data.
 
 On the publication's MobMess output, 44 of the 169 compound accessory plasmids (24 clusters) have a plasmid parent,
-and they carry 50 extra regions:
+giving 56 compound-parent pairs and 89 extra regions:
 
-| class | regions | clusters | median size | source in dataset |
-|---|---|---|---|---|
-| integrative element | 24 | 9 | 25 kb | 14 |
-| plasmid-derived (second parent absent) | 14 | 9 | 59 kb | 0 |
-| MOB/MPF module | 11 | 5 | 26 kb | 8 |
-| ICE-like | 1 | 1 | 15 kb | 0 |
+| class | regions | clusters | median size | source in dataset | in another parent (>= 80%) |
+|---|---|---|---|---|---|
+| Rep and Integrase | 17 | 8 | 68 kb | 8 | 9 |
+| MOB/MPF | 16 | 4 | 28 kb | 11 | 0 |
+| ICE-like | 5 | 2 | 59 kb | 0 | 0 |
+| Rep (second parent present) | 5 | 1 | 44 kb | 5 | 5 |
+| Rep (second parent absent) | 2 | 2 | 68 kb | 0 | 0 |
+| IME-like | 1 | 1 | 59 kb | 0 | 1 |
+| unclassified | 43 | 13 | 17 kb | 31 | 17 |
 
-- Cluster 381 (both members) is the only cointegrate. Its parents are clusters 364 and 380, and the junction genes
+- Cluster 381 (both members) is the only cointegrate (parents: clusters 364 and 380). Against each parent, the
+  region it lacks is the other parent's half (Rep and Integrase, 98-100% in the other parent). The junction genes
   include the four Tn3 genes of the publication's clinker figure (Fig. 5B).
-- The Fig. S5A plasmid (bc2012, cluster 235) carries a 79 kb region not in its PS23 parent. It is an integrative
-  element: integrase at its end; transposases (IS4, IS630, ISRm11) and group II introns inside; no relaxase, MPF or
-  phage genes detected by MOB-typer, geNomad or Bakta.
-- The 14 plasmid-derived regions carry RepC (RepABC HMM and Bakta) or a MOB-typer replicon, and no sequence in the
-  data covers more than 59% of any of them: plasmids whose second parent was not sampled.
-- The 26 kb MOB/MPF regions of cluster 271 are 98% contained in the cluster 380 plasmid: a mobilization module
-  acquired from a plasmid present in the dataset.
+- Mosaics of related backbones (clusters 201 and 345) are no longer hidden: contig_7_TG123
+  (cluster 201) lacks a 15 kb IS-flanked sulfur-metabolism cassette relative to PS25 (TG85) that PS22 (TG164)
+  carries, and a 59 kb IME-like module (MOBQ relaxase, T4CP, integrases) relative to PS22 that PS25 carries. All
+  three share the same RepABC (in the core both parents cover), so PS22 and PS25 are variants of one family.
+- The same 59 kb module in the four cluster-164 plasmids (vs PS22) is ICE-like: MOB-typer and Bakta both report MPF.
+  The MPF evidence is a single gene (a T4CP / MPF_T hit), so this is a weak ICE call. Only cluster 381 passes the cointegrate rule; in 201 and 345
+  the parents overlap by 81-100%.
+- Cluster 271 is compared with PS30 (cluster 268) and PS23 (cluster 166). Relative to PS23 it lacks Rep regions
+  carried by PS30 (Rep, second parent present) plus the MOB/MPF module also missing from PS30.
+- Cluster 206 (contig_1_TG93) relative to PS7 (cluster 62, a small parent) is ICE-like (182 kb): relaxase, MPF from
+  all three sources and several integrase / recombinase genes, but PS13 covers 56% of it.
+- The two Rep (second parent absent) regions (clusters 174 and 286) carry a RepABC HMM hit that no other sequence in
+  the data covers.
+- The MOB-typer-only replicon hits (rep_cluster_1776 at 86% identity on a helix-turn-helix protein in the cluster
+  164 / 201 module; one on an AAA-domain protein) are not used as Rep.
+- Unclassified example: the Fig. S5A plasmid (AVT38, formerly bc2012; cluster 235) carries a 79 kb region not in its
+  PS23 parent with IS630 / ISRm11 transposases inside and an integrase at its end.
 
 Output: `results/14_cointegrates/`
 - `compound_parents.tsv`: every compound, its plasmid parents and non-plasmid backbones
-- `extra_segments.tsv`: region coordinates, size, class, the hints of each kind with their source, best match
+- `extra_segments.tsv`: one row per region and parent system (`region_id` = plasmid|system|start-end): coordinates,
+  size, parent, class, the hints of each kind with their source, share in the other parents, best match
+- `extra_segment_genes.tsv`: the Bakta genes of each region (`region_id`, locus, gene, product), the input for a
+  functional (COG / GO / domain) annotation of what compounds acquired
 - `cointegrates.tsv`: both parents, covered kb and fractions, overlap, union, junctions, mobile genes at the junctions
-- `integration_summary.tsv`: one row per compound with a parent (regions per class, cointegrate)
+- `integration_summary.tsv`: one row per compound-parent pair (regions per class, unclassified, cointegrate)
 - `cointegrate_junction_genes.tsv`: mobile-element genes at the cointegrate junctions and region ends
-- figure `integration_map`: one bar per compound, parent-covered sequence in grey and extra regions coloured by class
+- figure `integration_map`: one bar per compound-parent pair, sequence in that parent in grey and extra regions
+  coloured by class (white: unclassified)
 
 ## Parameters
 
