@@ -27,6 +27,7 @@ process COINTEGRATES {
     path "compound_parents.tsv"          , emit: parents
     path "extra_segments.tsv"            , emit: segments
     path "extra_segment_genes.tsv"       , emit: segment_genes
+    path "integration_map_genes.tsv"     , emit: map_genes
     path "integration_summary.tsv"       , emit: summary
     path "cointegrate_junction_genes.tsv", emit: genes
     path "integration_map.{png,svg}"     , emit: figures
@@ -62,7 +63,7 @@ process COINTEGRATES {
 
     stub:
     """
-    touch cointegrates.tsv compound_parents.tsv extra_segments.tsv extra_segment_genes.tsv integration_summary.tsv \\
+    touch cointegrates.tsv compound_parents.tsv extra_segments.tsv extra_segment_genes.tsv integration_map_genes.tsv integration_summary.tsv \\
         cointegrate_junction_genes.tsv integration_map.png integration_map.svg
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

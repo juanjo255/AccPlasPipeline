@@ -648,14 +648,23 @@ giving 56 compound-parent pairs and 89 extra regions:
 Output: `results/14_cointegrates/`
 - `compound_parents.tsv`: every compound, its plasmid parents and non-plasmid backbones
 - `extra_segments.tsv`: one row per region and parent system (`region_id` = plasmid|system|start-end): coordinates,
-  size, parent, class, the hints of each kind with their source, share in the other parents, best match
-- `extra_segment_genes.tsv`: the Bakta genes of each region (`region_id`, locus, gene, product), the input for a
-  functional (COG / GO / domain) annotation of what compounds acquired
+  size, parent, class, the hints of each kind with their source, `cargo_genes` / `hypothetical_genes` counts and
+  `cargo_products` (the products of the cargo genes, e.g. sulfotransferase, ACC deaminase, NRPS), share in the
+  other parents, best match
+- `extra_segment_genes.tsv`: every Bakta gene of each region (`region_id`, coordinates, locus, gene, product) with
+  its `category` and `evidence`. The category is the first evidence kind the gene overlaps (>= 50% of the shorter
+  feature): Rep, MOB (relaxase), MPF, integrase, phage, transposase / IS (same sources as the hints above, any single
+  tool; the 2-of-3 MPF rule only applies to the region class); otherwise `hypothetical` (hypothetical /
+  uncharacterized / DUF-only products) or `cargo`. The input for a functional (COG / GO / domain) annotation of what
+  compounds acquired
 - `cointegrates.tsv`: both parents, covered kb and fractions, overlap, union, junctions, mobile genes at the junctions
 - `integration_summary.tsv`: one row per compound-parent pair (regions per class, unclassified, cointegrate)
 - `cointegrate_junction_genes.tsv`: mobile-element genes at the cointegrate junctions and region ends
-- figure `integration_map`: one bar per compound-parent pair, sequence in that parent in grey and extra regions
-  coloured by class (white: unclassified)
+- figure `integration_map`: one bar per compound-parent pair. Sequence in that parent is grey and sequence not in
+  the parent (extra regions) is white with an outline; the Rep, MOB (relaxase), MPF, integrase, phage and
+  transposase / IS genes of the whole compound are marked on top (colour by category; small genes drawn at a
+  minimum width). The map shows annotations, not region classes (those are in `extra_segments.tsv`)
+- `integration_map_genes.tsv`: the marked genes of the map (plasmid, start, end, category), to re-plot it
 
 ## Parameters
 

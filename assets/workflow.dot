@@ -70,7 +70,7 @@ digraph AccPlasPipeline {
 
     subgraph cluster_F {
         label=<<b>F · Compound plasmids (14)</b>>; style="rounded,filled"; fillcolor="#fbeaea"; color="#d9a0a0";
-        s14 [label=<<b>14 · Compound vs parent plasmids</b><br/>parents: plasmid backbones (MobMess Step 4 blocks)<br/>cointegrates · extra sequence not in each parent<br/>(per parent system, not merged) · region gene table>];
+        s14 [label=<<b>14 · Compound vs parent plasmids</b><br/>parents: plasmid backbones (MobMess Step 4 blocks)<br/>cointegrates · extra sequence not in each parent<br/>(per parent system, not merged) · gene map · region gene table>];
         s14c [label=<<b>Extra-sequence classes</b><br/>Rep and Integrase · Rep (2nd parent absent / present)<br/>phage-plasmid · ICE-like · IME-like · MOB/MPF (others unclassified)<br/>Rep: RepABC HMM (or MOB-typer + Bakta agree) · MPF: 2 of 3 tools>];
     }
 

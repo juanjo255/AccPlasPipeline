@@ -48,7 +48,7 @@ Extra sequence is computed per parent system (compound vs each parent separately
 region absent from one parent but carried by another is kept; in_other_parents gives the share of the
 region found in the compound's other parents.
 
-Outputs: compound_parents.tsv, extra_segments.tsv, extra_segment_genes.tsv, cointegrates.tsv,
+Outputs: compound_parents.tsv, extra_segments.tsv, extra_segment_genes.tsv, integration_map_genes.tsv, cointegrates.tsv,
          integration_summary.tsv (one row per compound-parent pair), cointegrate_junction_genes.tsv,
          integration_map.png/.svg
 """
@@ -73,6 +73,12 @@ PHAGE = re.compile(r"terminase|capsid|portal protein|tail (fiber|fibre|tube|shea
 MOBILE = re.compile(r"transposase|resolvase|integrase|recombinase|insertion element|\bTn3\b", re.I)
 CLASSES = ["phage-plasmid", "Rep and Integrase", "Rep (second parent absent)", "Rep (second parent present)",
            "ICE-like", "IME-like", "MOB/MPF"]
+# Gene categories marked on the map and reported per gene (priority order: first match names the gene)
+GENE_KINDS = [("replication", "Rep"), ("relaxase", "MOB (relaxase)"), ("MPF", "MPF"), ("integrase", "integrase"),
+              ("phage gene", "phage"), ("transposase", "transposase / IS")]
+GENE_COLORS = {"Rep": "#D55E00", "MOB (relaxase)": "#CC79A7", "MPF": "#0072B2", "integrase": "#009E73",
+               "phage": "#8c564b", "transposase / IS": "#E69F00"}
+HYPOTHETICAL = re.compile(r"hypothetical|uncharacteri[sz]ed|DUF\d+ domain-containing protein$", re.I)
 COLORS = {"parent": "#BBBBBB", "": "#FFFFFF", "phage-plasmid": "#8c564b", "Rep and Integrase": "#009E73",
           "Rep (second parent absent)": "#D55E00", "Rep (second parent present)": "#f0a070",
           "ICE-like": "#0072B2", "IME-like": "#56B4E9", "MOB/MPF": "#CC79A7"}
@@ -273,6 +279,20 @@ def main():
         return [g for g in genes.get(x, [])
                 if any(g[1] + sh >= p - w and g[0] + sh <= p + w for p in points for sh in shifts)]
 
+    def gene_category(x, g):
+        """Category of a Bakta gene: first evidence kind overlapping >= 50% of the shorter feature."""
+        labs, cat = [], None
+        for kind, name in GENE_KINDS:
+            hits = [lab for s_, t_, lab in ev[x][kind]
+                    if min(g[1], t_) - max(g[0], s_) + 1 >= 0.5 * min(g[1] - g[0] + 1, t_ - s_ + 1)]
+            if hits:
+                labs += hits
+                cat = cat or name
+        return cat or ("hypothetical" if HYPOTHETICAL.search(g[4]) or not g[4] else "cargo"), list(dict.fromkeys(labs))
+
+    # Marked genes per compound for the map
+    feats = {x: [(s_, t_, name) for kind, name in GENE_KINDS for s_, t_, _ in ev[x][kind]] for x in compounds}
+
     parent_rows, seg_rows, coint_rows, summary_rows, gene_rows, region_gene_rows = [], [], [], [], [], []
     for x in sorted(compounds):
         xl = xlen.get(x)
@@ -399,10 +419,22 @@ def main():
                     "best_match": donor or "", "best_match_cluster": clusters.get(donor, {}).get("cluster", ""),
                     "best_match_type": clusters.get(donor, {}).get("cluster_type", ""),
                     "best_match_fraction": round(dcov / seg_bp, 3), "source_in_dataset": int(in_data)})
-                # Genes of the region (input for functional annotation of what the compound acquired)
-                region_gene_rows += [{"region_id": rid, "plasmid": x, "system": s_name, "class": cls,
-                                      "start": g[0], "end": g[1], "locus": g[2], "gene": g[3], "product": g[4]}
-                                     for g in genes.get(x, []) if inside(g[0], g[1], region)]
+                # Genes of the region with their category (Rep / MOB / MPF / integrase / phage / transposase from
+                # the same evidence as above; otherwise hypothetical or cargo): what the compound acquired
+                cargo, n_hyp = [], 0
+                for g in genes.get(x, []):
+                    if not inside(g[0], g[1], region):
+                        continue
+                    cat, labs = gene_category(x, g)
+                    if cat == "hypothetical":
+                        n_hyp += 1
+                    elif cat == "cargo":
+                        cargo.append(g[4])
+                    region_gene_rows.append({"region_id": rid, "plasmid": x, "system": s_name, "class": cls,
+                                             "start": g[0], "end": g[1], "locus": g[2], "gene": g[3],
+                                             "product": g[4], "category": cat, "evidence": ";".join(labs)})
+                seg_rows[-1].update({"cargo_genes": len(cargo), "hypothetical_genes": n_hyp,
+                                     "cargo_products": uniq(cargo)})
                 gene_rows += [{"type": f"segment end ({cls})", "plasmid": x, "start": g[0], "end": g[1],
                                "locus": g[2], "gene": g[3], "product": g[4]} for g in ends if MOBILE.search(g[4])]
 
@@ -426,6 +458,7 @@ def main():
                 for k, v in r.items():
                     if isinstance(v, str):
                         r[k] = rx.sub(lambda m: new[m.group(0)], v)
+        feats = {rx.sub(lambda m: new[m.group(0)], k): v for k, v in feats.items()}
 
     def write(path, rows, cols):
         with open(path, "w", newline="") as out:
@@ -438,11 +471,12 @@ def main():
     write("extra_segments.tsv", seg_rows,
           ["region_id", "plasmid", "cluster", "length", "system", "parent", "parent_cluster", "start", "end",
            "segment_bp", "class", "replication", "replication_unconfirmed", "relaxase", "MPF", "MPF_sources",
-           "MPF_accepted", "integrase", "transposase", "phage", "genes",
-           "in_other_parents", "best_match", "best_match_cluster", "best_match_type", "best_match_fraction",
+           "MPF_accepted", "integrase", "transposase", "phage", "genes", "cargo_genes", "hypothetical_genes",
+           "cargo_products", "in_other_parents", "best_match", "best_match_cluster", "best_match_type", "best_match_fraction",
            "source_in_dataset"])
     write("extra_segment_genes.tsv", region_gene_rows,
-          ["region_id", "plasmid", "system", "class", "start", "end", "locus", "gene", "product"])
+          ["region_id", "plasmid", "system", "class", "start", "end", "locus", "gene", "product", "category",
+           "evidence"])
     write("cointegrates.tsv", coint_rows,
           ["plasmid", "cluster", "length", "system_1", "backbone_cluster_1", "backbone_1", "covered_kb_1", "fraction_1",
            "system_2", "backbone_cluster_2", "backbone_2", "covered_kb_2", "fraction_2", "overlap", "union",
@@ -451,15 +485,21 @@ def main():
           ["plasmid", "cluster", "length", "system", "parent", "parent_cluster", "parents", "covered_by_parent_bp",
            "extra_segments", "extra_bp", "cointegrate"] + CLASSES + ["unclassified"])
     write("cointegrate_junction_genes.tsv", gene_rows, ["type", "plasmid", "start", "end", "locus", "gene", "product"])
-    plot(summary_rows, seg_rows)
+    # Marked genes of every compound with a plasmid parent (the map's coloured marks), for re-plotting
+    write("integration_map_genes.tsv",
+          [{"plasmid": x, "start": s_, "end": t_, "category": name}
+           for x in sorted({r["plasmid"] for r in summary_rows}) for s_, t_, name in sorted(set(feats.get(x, [])))],
+          ["plasmid", "start", "end", "category"])
+    plot(summary_rows, seg_rows, feats)
     n_par = sum(1 for r in parent_rows if r["plasmid_parents"])
     print(f"{len(parent_rows)} compound accessory plasmids, {n_par} with a plasmid parent ({len(summary_rows)} "
           f"compound-parent pairs); {len(seg_rows)} extra segments >= {args.min_segment} bp; "
           f"cointegrates: {len(coint_rows)}")
 
 
-def plot(summary_rows, seg_rows):
-    """One bar per compound-parent pair (by length): sequence covered by that parent and extra segments by class."""
+def plot(summary_rows, seg_rows, feats):
+    """One bar per compound-parent pair (by length): sequence covered by that parent in grey, sequence not in the
+    parent (extra regions) in white, and the Rep / MOB / MPF / integrase / phage / transposase genes marked."""
     os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
     import matplotlib
     matplotlib.use("Agg")
@@ -467,20 +507,24 @@ def plot(summary_rows, seg_rows):
     from matplotlib.patches import Patch
 
     rows = sorted(summary_rows, key=lambda r: (r["length"], r["plasmid"], r["system"]))
-    fig, ax = plt.subplots(figsize=(7, max(3, 0.1 * len(rows) + 1)))
+    fig, ax = plt.subplots(figsize=(7.5, max(3, 0.12 * len(rows) + 1)))
     segs = defaultdict(list)
     for s in seg_rows:
         segs[(s["plasmid"], s["system"])].append(s)
+    min_w = max(r["length"] for r in rows) / 1000 / 400      # genes drawn at least this wide (kb) to stay visible
+    draw_order = [name for _, name in GENE_KINDS][::-1]      # transposases first, Rep on top
     for i, r in enumerate(rows):
         ax.barh(i, r["length"] / 1000, color=COLORS["parent"], height=0.8, linewidth=0)
         for s in segs[(r["plasmid"], r["system"])]:
             for a, e in unwrap(s["start"], s["start"] + s["segment_bp"] - 1, r["length"]):
-                # unclassified regions: white, outlined (not in the parent, no class of interest)
-                ax.barh(i, (e - a + 1) / 1000, left=(a - 1) / 1000, color=COLORS[s["class"]], height=0.8,
-                        linewidth=0 if s["class"] else 0.3, edgecolor="#888888")
+                ax.barh(i, (e - a + 1) / 1000, left=(a - 1) / 1000, color="white", height=0.8,
+                        linewidth=0.3, edgecolor="#666666")
+        marks = sorted(set(feats.get(r["plasmid"], [])), key=lambda f: draw_order.index(f[2]))
+        for s_, t_, name in marks:
+            ax.barh(i, max((t_ - s_ + 1) / 1000, min_w), left=(s_ - 1) / 1000, color=GENE_COLORS[name],
+                    height=0.55, linewidth=0)
         if r["cointegrate"]:
             ax.text(r["length"] / 1000 + 3, i, "cointegrate", va="center", fontsize=5)
-    used = {s["class"] for s in seg_rows}
     # Row labels: plasmid, its MobMess cluster, and the parent system / backbone cluster it is compared with
     ax.set_yticks(range(len(rows)))
     ax.set_yticklabels([f"{r['plasmid']}  (cl {r['cluster']})  vs {r['system']} (cl {r['parent_cluster']})"
@@ -490,10 +534,9 @@ def plot(summary_rows, seg_rows):
     ax.set_ylabel(f"Compound plasmid vs parent system (n = {len(rows)} pairs)")
     ax.set_xlabel("Position (kb)")
     ax.spines[["top", "right"]].set_visible(False)
-    ax.legend(handles=[Patch(color=COLORS["parent"], label="covered by the parent")] +
-              [Patch(color=COLORS[c], label=c) for c in CLASSES if c in used] +
-              ([Patch(facecolor="white", edgecolor="#888888", linewidth=0.5, label="not in parent, unclassified")]
-               if "" in used else []),
+    ax.legend(handles=[Patch(color=COLORS["parent"], label="covered by the parent"),
+                       Patch(facecolor="white", edgecolor="#666666", linewidth=0.5, label="not in the parent")] +
+              [Patch(color=GENE_COLORS[name], label=name) for _, name in GENE_KINDS],
               frameon=False, fontsize=6, loc="lower right")
     fig.savefig("integration_map.png", dpi=300, bbox_inches="tight")
     fig.savefig("integration_map.svg", bbox_inches="tight")
