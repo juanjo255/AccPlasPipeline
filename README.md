@@ -517,7 +517,18 @@ samplesheet: the whole-genome Bakta GFF3 of each assembly). [Panaroo](https://do
 (Step 10). Gene families are assigned to accessory plasmids only through the standalone plasmid GFFs, and to the
 chromosome / pSymA / pSymB through the genome GFFs and the Step 11 tags (genes on accessory-plasmid contigs skipped,
 so nothing is counted twice). On the publication's Panaroo output this reproduces `family_group_membership.csv`
-exactly and 34.6% of accessory-plasmid families shared with a main replicon. Panaroo on hundreds of genomes needs
+exactly and 34.6% of accessory-plasmid families shared with a main replicon.
+
+Raw counts favour the larger replicons (more genes, more families), so `gene_sharing_summary.tsv` also reports each
+shared count as a percentage of all families found on that replicon (`percent_of_replicon_families`). On the
+publication data:
+
+| replicon | families on it | shared with accessory plasmids | % of accessory-plasmid families (9,485) | % of the replicon's families |
+|---|---|---|---|---|
+| Chromosome | 14,970 | 1,148 | 12.1 | 7.7 |
+| pSymA | 7,507 | 2,812 | 29.6 | 37.5 |
+| pSymB | 5,340 | 1,095 | 11.5 | 20.5 |
+| any main replicon | 22,718 | 3,280 | 34.6 | 14.4 | Panaroo on hundreds of genomes needs
 a large node (`process_panaroo`: 32 CPUs, 100 GB, 72 h; the publication used 70 CPUs).
 
 Output: `results/13_gene_content/`
@@ -525,8 +536,12 @@ Output: `results/13_gene_content/`
 - `cog_analysis/`: `cog_counts.tsv`, `og_presence_absence.tsv`, `cog_ordination.tsv`, `cog_enrichment.tsv` (all tests),
   `cog_enrichment_significant.tsv`; figures `cog_counts`, `cog_pcoa`, `cog_mds`, `cog_enrichment_dotplot`, `cog_cluster_heatmap`
 - `panaroo/`: Panaroo output
-- `gene_sharing/`: `family_group_membership.csv`, `gene_sharing_summary.tsv`, `shared_families_cog.tsv`;
-  figures `gene_sharing_upset`, `shared_families_cog`
+- `gene_sharing/`: `family_group_membership.csv`, `gene_sharing_summary.tsv` (shared families as % of the plasmid
+  families and as % of each replicon's families), `shared_families_cog.tsv`, `shared_families_cog_by_replicon.tsv`
+  (with eggNOG: each shared family gets its most common COG letter among its accessory-plasmid genes, `-` and `S`
+  ignored; per replicon, shared families of each COG category as count and as % of all that replicon's families);
+  figures `gene_sharing_upset`, `gene_sharing_by_replicon` (shared families as % of each replicon's families),
+  `shared_families_cog`, `shared_families_cog_by_replicon`
 - `panaroo_plasmids/`, `signalp4/`, `signal_peptides/`: see C below
 
 **C. Signal peptide-bearing protein families** (with `--signalp4_module`; publication Fig. 9D). SignalP 4.1

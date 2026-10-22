@@ -14,10 +14,14 @@ annotation_id and clustering_id of gene_data.csv ('_pseudo' suffix removed).
 Outputs:
   family_group_membership.csv  Gene, Annotation, n_contigs_Chromosome, n_contigs_pSymA,
                                n_contigs_pSymB, n_contigs_AccPlasmid (all-zero families dropped)
-  gene_sharing_summary.tsv     accessory-plasmid families shared with each main replicon
+  gene_sharing_summary.tsv     accessory-plasmid families shared with each main replicon, as % of the
+                               plasmid families and as % of that replicon's families (size-normalised)
   gene_sharing_upset.png/.svg  UpSet plot of families per replicon group
+  gene_sharing_by_replicon.png/.svg  shared families as % of each main replicon's families
   shared_families_cog.tsv / shared_families_cog.png/.svg  (with --eggnog) COG categories of
                                accessory-plasmid genes in families shared with each replicon
+  shared_families_cog_by_replicon.tsv / .png/.svg  (with --eggnog) shared families per COG category
+                               (one category per family) as % of each replicon's families
 """
 import argparse
 import csv
@@ -54,6 +58,27 @@ def parse_args():
     p.add_argument("--gff-samples", help="optional 'gff_name<TAB>sample': genome GFF contigs without the _<sample> "
                                          "suffix are matched to the tag table after adding it")
     return p.parse_args()
+
+
+def plot_replicon_sharing(sets, out="gene_sharing_by_replicon"):
+    """Bar plot: accessory-plasmid families shared with each main replicon, as % of that replicon's families."""
+    import matplotlib.pyplot as plt
+    pls = sets["AccPlasmid"]
+    reps = ["Chromosome", "pSymA", "pSymB"]
+    shared = [len(pls & sets[g]) for g in reps]
+    total = [len(sets[g]) for g in reps]
+    pct = [100 * n / max(1, t) for n, t in zip(shared, total)]
+    fig, ax = plt.subplots(figsize=(3.2, 3))
+    ax.bar(reps, pct, color=["#4C72B0", "#DD8452", "#55A868"], width=0.6)
+    for i, (p, n, t) in enumerate(zip(pct, shared, total)):
+        ax.text(i, p + 0.8, f"{p:.1f}%\n({n:,} / {t:,})", ha="center", va="bottom", fontsize=7)
+    ax.set_ylim(0, max(pct) * 1.3)
+    ax.set_ylabel("Families shared with accessory plasmids\n(% of the replicon's gene families)", fontsize=8)
+    ax.tick_params(labelsize=8)
+    ax.spines[["top", "right"]].set_visible(False)
+    fig.savefig(f"{out}.png", dpi=300, bbox_inches="tight")
+    fig.savefig(f"{out}.svg", bbox_inches="tight")
+    plt.close(fig)
 
 
 def norm(token):
@@ -143,14 +168,19 @@ def main():
 
     pls = sets["AccPlasmid"]
     any_main = pls & (sets["Chromosome"] | sets["pSymA"] | sets["pSymB"])
+    # percent_of_replicon_families: shared families / all families found on that replicon (size-normalised:
+    # larger replicons carry more families, so raw counts favour the chromosome)
+    main_all = sets["Chromosome"] | sets["pSymA"] | sets["pSymB"]
     with open("gene_sharing_summary.tsv", "w") as out:
-        out.write("comparison\tfamilies\tpercent_of_plasmid_families\n")
-        out.write(f"accessory plasmid families\t{len(pls)}\t100.0\n")
+        out.write("comparison\tfamilies\tpercent_of_plasmid_families\treplicon_families\tpercent_of_replicon_families\n")
+        out.write(f"accessory plasmid families\t{len(pls)}\t100.0\t\t\n")
         for g in ("Chromosome", "pSymA", "pSymB"):
             n = len(pls & sets[g])
-            out.write(f"shared with {g}\t{n}\t{100 * n / len(pls):.1f}\n")
-        out.write(f"shared with any main replicon\t{len(any_main)}\t{100 * len(any_main) / len(pls):.1f}\n")
-        out.write(f"accessory plasmids only\t{len(pls) - len(any_main)}\t{100 * (len(pls) - len(any_main)) / len(pls):.1f}\n")
+            out.write(f"shared with {g}\t{n}\t{100 * n / len(pls):.1f}\t{len(sets[g])}\t"
+                      f"{100 * n / max(1, len(sets[g])):.1f}\n")
+        out.write(f"shared with any main replicon\t{len(any_main)}\t{100 * len(any_main) / len(pls):.1f}\t"
+                  f"{len(main_all)}\t{100 * len(any_main) / max(1, len(main_all)):.1f}\n")
+        out.write(f"accessory plasmids only\t{len(pls) - len(any_main)}\t{100 * (len(pls) - len(any_main)) / len(pls):.1f}\t\t\n")
 
     os.environ.setdefault("MPLCONFIGDIR", os.path.join(os.getcwd(), ".matplotlib"))
     import matplotlib
@@ -170,6 +200,7 @@ def main():
     fig.savefig("gene_sharing_upset.png", dpi=300, bbox_inches="tight")
     fig.savefig("gene_sharing_upset.svg", bbox_inches="tight")
     plt.close(fig)
+    plot_replicon_sharing(sets)
 
     if args.eggnog:
         # COG letters of accessory-plasmid genes in families shared with each replicon
@@ -204,6 +235,42 @@ def main():
             ax.spines[["top", "right"]].set_visible(False)
             fig.savefig("shared_families_cog.png", dpi=300, bbox_inches="tight")
             fig.savefig("shared_families_cog.svg", bbox_inches="tight")
+            plt.close(fig)
+
+        # Size-normalised view: each shared family gets one COG category (most common letter among its
+        # accessory-plasmid genes, '-' and 'S' ignored); per replicon, shared families of each category as % of
+        # all families on that replicon (same denominator as gene_sharing_by_replicon)
+        fam_letters = defaultdict(lambda: defaultdict(int))
+        for _, locus, family in acc_gene_family:
+            for letter in cog_of.get(locus, ""):
+                if letter not in ("-", "S"):
+                    fam_letters[family][letter] += 1
+        fam_cog = {f: max(c.items(), key=lambda kv: (kv[1], kv[0]))[0] for f, c in fam_letters.items()}
+        reps = ["Chromosome", "pSymA", "pSymB"]
+        recs = []
+        for g in reps:
+            for f in pls & sets[g]:
+                if f in fam_cog:
+                    recs.append((g, COG.get(fam_cog[f], fam_cog[f])))
+        norm_tab = pd.DataFrame(recs, columns=["replicon", "description"])
+        if not norm_tab.empty:
+            counts = norm_tab.groupby(["description", "replicon"]).size().unstack(fill_value=0).reindex(columns=reps,
+                                                                                                         fill_value=0)
+            pct = counts.div([max(1, len(sets[g])) for g in reps], axis=1) * 100
+            out_tab = counts.add_suffix("_families").join(pct.round(3).add_suffix("_pct_of_replicon_families"))
+            out_tab.to_csv("shared_families_cog_by_replicon.tsv", sep="\t")
+            pct = pct.loc[pct.max(axis=1).sort_values(ascending=False).index]
+            fig, ax = plt.subplots(figsize=(10, 4.5))
+            pct.plot(kind="bar", ax=ax, width=0.8, color=["#4C72B0", "#DD8452", "#55A868"])
+            ax.set_ylabel("Families shared with accessory plasmids\n(% of the replicon's gene families)")
+            ax.set_xlabel("COG category")
+            ax.tick_params(axis="x", rotation=60, labelsize=7)
+            for lab in ax.get_xticklabels():
+                lab.set_ha("right")
+            ax.legend(frameon=False)
+            ax.spines[["top", "right"]].set_visible(False)
+            fig.savefig("shared_families_cog_by_replicon.png", dpi=300, bbox_inches="tight")
+            fig.savefig("shared_families_cog_by_replicon.svg", bbox_inches="tight")
             plt.close(fig)
 
     print(f"{len(family_annot)} families; accessory plasmid families {len(pls)}, shared with a main replicon "
