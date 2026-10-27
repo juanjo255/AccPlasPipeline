@@ -1,5 +1,5 @@
 // AccPlasPipeline detailed workflow. Render:
-//   dot -Tsvg workflow.dot -o workflow.svg && dot -Tpng -Gdpi=300 workflow.dot -o workflow.png
+//   dot -Tsvg workflow.dot -o workflow.svg && dot -Tpng -Gdpi=150 workflow.dot -o workflow.png
 digraph AccPlasPipeline {
     graph [rankdir=TB, newrank=true, compound=true, nodesep=0.35, ranksep=0.45, pad=0.3,
            fontname="DejaVu Sans", fontsize=12, labelloc=t, splines=true,
@@ -10,7 +10,7 @@ digraph AccPlasPipeline {
     subgraph cluster_inputs {
         label=<<b>Inputs</b>>; style="rounded,filled"; fillcolor="#f4f4f4"; color="#bbbbbb";
         plsdb [shape=note, fillcolor="#fff7d6", label=<<b>PLSDB 2024_05_31_v2</b><br/>sequences · nuccore.csv · typing.csv<br/>Mash sketch*>];
-        dbs   [shape=note, fillcolor="#fff7d6", label=<<b>Databases</b><br/>geNomad v1.9 · Bakta v6.0 · MOB-suite · RepABC HMMs (TIGRFAMs / Pfam)<br/>TASmania · DefenseFinder · antiSMASH · dbCAN · eggNOG* · SignalP 6 / 4.1*>];
+        dbs   [shape=note, fillcolor="#fff7d6", label=<<b>Databases</b><br/>geNomad v1.9 · Bakta v6.0 · MOB-suite · RepABC HMMs (TIGRFAMs / Pfam)<br/>TASmania · DefenseFinder · antiSMASH · dbCAN · eggNOG* · SignalP 6 / 4.1*<br/>Pfam 35.0 · MIBiG 4.0 · antiSMASH-DB v4 BiG-SLiCE models*>];
         sheet [shape=note, fillcolor="#fff7d6", label=<<b>Samplesheet</b><br/>sample · assembly (polished Flye)<br/>assembly_info · bam* · gff* · assembly_graph* · dataset*>];
         ref   [shape=note, fillcolor="#fff7d6", style="filled,dashed", label=<<b>Reference genome*</b><br/>S. meliloti GCF_037023865<br/>(chromosome · pSymA · pSymB)>];
     }
@@ -48,6 +48,15 @@ digraph AccPlasPipeline {
         df   [label=<<b>Defense systems</b><br/>DefenseFinder 3.0.0>];
         sp   [style="rounded,filled,dashed", label=<<b>Signal peptides*</b><br/>SignalP 6 (licensed module)>];
         s10s [label=<<b>Annotation summary + figures</b><br/>per plasmid and per MobMess cluster>];
+    }
+
+    subgraph cluster_C2 {
+        label=<<b>C2 · BGC novelty (10b)*</b>>; style="rounded,filled,dashed"; fillcolor="#fdf6ec"; color="#e6b98f";
+        bgs  [label=<<b>BiG-SCAPE 2.0.3</b><br/>mix + class bins · local alignment<br/>MIBiG 4.0 references · GCF cutoff 0.3>];
+        bsl  [label=<<b>BiG-SLiCE 2.0 GCFs</b><br/>threshold 0.65 · singletons beyond>];
+        bsq  [label=<<b>BiG-SLiCE query</b><br/>distance to antiSMASH-DB v4 GCFs>];
+        bnov [label=<<b>Novelty labels</b><br/>known (MIBiG in GCF) / novel<br/>antiSMASH-DB match ≤ 0.65 · GCF novelty (mean distance)<br/>GCFs ≥ 5 regions flagged>];
+        bnet [label=<<b>Gephi network</b><br/>nodes · edges · bridges<br/>plasmid · MobMess cluster · replicon group>];
     }
 
     subgraph cluster_D {
@@ -117,6 +126,16 @@ digraph AccPlasPipeline {
     cz -> sp [style=dashed];
     {ta df as cz} -> s10s;
     sp -> s10s [style=dashed];
+
+    // C2: BGC novelty (optional)
+    as -> bgs;
+    as -> bsl;
+    as -> bsq;
+    {bgs bsl bsq} -> bnov;
+    bgs -> bnet;
+    bnov -> bnet;
+    s8 -> bnet [style=dashed, label="clusters"];
+    s7 -> bnet [style=dashed, label="replicon groups"];
 
     // D: replicon context
     final -> cn;

@@ -1,5 +1,5 @@
 // AccPlasPipeline compact workflow (README header). Render:
-//   dot -Tsvg workflow_compact.dot -o workflow_compact.svg && dot -Tpng -Gdpi=300 workflow_compact.dot -o workflow_compact.png
+//   dot -Tsvg workflow_compact.dot -o workflow_compact.svg && dot -Tpng -Gdpi=150 workflow_compact.dot -o workflow_compact.png
 digraph AccPlasPipelineCompact {
     graph [rankdir=LR, newrank=true, nodesep=0.3, ranksep=0.4, pad=0.2, fontname="DejaVu Sans", fontsize=12];
     node  [shape=box, style="rounded,filled", fillcolor=white, color="#555555", fontname="DejaVu Sans", fontsize=11];
@@ -29,6 +29,7 @@ digraph AccPlasPipelineCompact {
         label="Characterization"; style="rounded,filled"; fillcolor="#fdf0e4"; color="#e6b98f";
         typ [label="7–9 · Replicon groups\nRepABC · MobMess · plots"];
         ann [label="10 · Functional annotation\nTA · defense · BGC · CAZymes"];
+        bgc [style="rounded,filled,dashed", label="10b · BGC novelty*\nBiG-SCAPE · BiG-SLiCE"];
         rep [label="11 · Copy number\n3-mer composition"];
         ani [label="12 · Pairwise ANI\nskani"];
         gc  [label="13 · Gene content\nCOG · gene sharing · signal peptides"];
@@ -49,6 +50,7 @@ digraph AccPlasPipelineCompact {
     fin -> cg;
     fin -> typ;
     fin -> ann;
+    ann -> bgc [style=dashed];
     fin -> rep;
     fin -> ani;
     fin -> gc;
