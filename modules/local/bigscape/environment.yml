@@ -1,0 +1,8 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - bioconda::bigscape=2.0.3
+  # SQLAlchemy 2.1 breaks BiG-SCAPE 2.0.3 (ObjectNotExecutableError when creating the database)
+  - conda-forge::sqlalchemy>=2.0,<2.1

@@ -1,0 +1,20 @@
+---
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - conda-forge::python=3.11
+  - conda-forge::pip
+  - pip:
+    # BiG-SLiCE 2.0 at the commit used for the publication analysis (same as BIGSLICE_QUERY).
+    # Dependencies pinned to the versions of that run: the query unpickles the antiSMASH-DB
+    # GCF models with pandas/numpy, and pyhmmer sets the feature values (distances).
+    - git+https://github.com/CedricHermansBIT/bigslice.git@817c473041a07be9f1fad6ebdc541e9f343239b3
+    - pyhmmer==0.12.0
+    - biopython==1.83
+    - numpy==2.4.6
+    - pandas==3.0.3
+    - scikit-learn==1.8.0
+    - scipy==1.17.1
+    - pyarrow==24.0.0
+    - tqdm==4.67.3

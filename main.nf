@@ -47,6 +47,11 @@ include { PANAROO as PANAROO_PLASMIDS } from './modules/local/panaroo'
 include { SIGNALP4              } from './modules/local/signalp4'
 include { SIGNAL_PEPTIDES       } from './modules/local/signal_peptides'
 include { COINTEGRATES          } from './modules/local/cointegrates'
+include { BIGSCAPE              } from './modules/local/bigscape'
+include { BIGSLICE_CLUSTER      } from './modules/local/bigslice_cluster'
+include { BIGSLICE_QUERY        } from './modules/local/bigslice_query'
+include { BGC_NOVELTY           } from './modules/local/bgc_novelty'
+include { BGC_NETWORK           } from './modules/local/bgc_network'
 
 workflow {
 
@@ -69,6 +74,15 @@ workflow {
         }
         if (params.signalp_module && !params.signalp_model_dir) {
             error "--signalp_module requires --signalp_model_dir"
+        }
+    }
+    if (params.bgc_novelty) {
+        if (params.skip_annotation) {
+            error "--bgc_novelty needs the antiSMASH regions of Step 10 (remove --skip_annotation)"
+        }
+        def missing_bgc = ['pfam_db', 'mibig_gbk_dir', 'bigslice_models', 'bigslice_asdb'].findAll { !params[it] }
+        if (missing_bgc) {
+            error "Step 10b (BGC novelty) needs: ${missing_bgc.collect { '--' + it }.join(', ')}"
         }
     }
     if (params.plsdb_mash && !params.plsdb_sketch) {
@@ -367,6 +381,47 @@ workflow {
             DBCAN.out.cazymes,
             ch_signalp
         )
+
+        // -----------------------------------------------------------------
+        // Step 10b: BGC novelty (--bgc_novelty), after Pulliam et al. 2026
+        //   known/novel: BiG-SCAPE GCF (cutoff 0.3) with a MIBiG BGC
+        //   novelty: BiG-SLiCE GCFs (0.65) and their distance to antiSMASH-DB v4 GCFs
+        // -----------------------------------------------------------------
+        if (params.bgc_novelty) {
+            ch_regions         = ANTISMASH.out.regions.collect()
+            ch_bigslice_models = file(params.bigslice_models, checkIfExists: true)
+            ch_bigslice_asdb   = file(params.bigslice_asdb, checkIfExists: true)
+
+            BIGSCAPE (
+                ch_regions,
+                file(params.pfam_db, checkIfExists: true),
+                file(params.mibig_gbk_dir, checkIfExists: true),
+                params.bigscape_cutoff
+            )
+            BIGSLICE_CLUSTER ( ch_regions, ch_bigslice_models, params.bigslice_threshold )
+            BIGSLICE_QUERY   ( ch_regions, ch_bigslice_asdb, ch_bigslice_models )
+
+            BGC_NOVELTY (
+                BIGSCAPE.out.db,
+                BIGSLICE_CLUSTER.out.db,
+                BIGSLICE_QUERY.out.db,
+                ch_bigslice_asdb,
+                params.bigscape_cutoff,
+                params.antismashdb_match_dist,
+                params.min_gcf_size
+            )
+
+            // Gephi network, with the plasmid cluster (Step 8) and replicon group (Step 7) of each BGC
+            BGC_NETWORK (
+                BIGSCAPE.out.outdir,
+                BGC_NOVELTY.out.bgcs,
+                BGC_NOVELTY.out.gcfs,
+                MOBMESS_SYSTEMS_FINAL.out.clusters,
+                REPLICON_GROUPS.out.groups,
+                params.bigscape_cutoff,
+                params.network_top_clusters
+            )
+        }
     }
 
     // ---------------------------------------------------------------------

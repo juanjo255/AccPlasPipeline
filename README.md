@@ -29,6 +29,7 @@ Both are generated with Graphviz from `assets/workflow_compact.dot` and `assets/
   - [8. MobMess on the final accessory plasmids](#8-mobmess-on-the-final-accessory-plasmids)
   - [9. Summary table and figures (`matplotlib`, `seaborn`)](#9-summary-table-and-figures-matplotlib-seaborn)
   - [10. Functional annotation (`bakta`, TASmania, `defense-finder`, `antismash`, `run_dbcan`, SignalP)](#10-functional-annotation-bakta-tasmania-defense-finder-antismash-run_dbcan-signalp)
+  - [10b. BGC novelty (BiG-SCAPE + MIBiG, BiG-SLiCE vs antiSMASH-DB)](#10b-bgc-novelty-big-scape--mibig-big-slice-vs-antismash-db)
   - [11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)](#11-replicon-tags-copy-number-and-3-mer-composition-minimap2-samtools-kmertools)
   - [12. Pairwise ANI between accessory plasmids (`skani dist`)](#12-pairwise-ani-between-accessory-plasmids-skani-dist)
   - [13. Gene content (`eggnog-mapper`, `panaroo`, SignalP 4.1)](#13-gene-content-eggnog-mapper-panaroo-signalp-41)
@@ -445,6 +446,47 @@ Output: `results/10_annotation/`
 - Figures: `ta_heatmap_per_plasmid`, `ta_heatmap_per_cluster`, `ta_operon_structures`, `defense_heatmap_per_cluster`,
   `bgc_types`, `cazyme_families`
 
+### 10b. BGC novelty (BiG-SCAPE + MIBiG, BiG-SLiCE vs antiSMASH-DB)
+
+Optional (`--bgc_novelty`), after Pulliam et al. 2026 ([bioRxiv](https://doi.org/10.64898/2026.08.08.743306)), on the
+antiSMASH regions of Step 10:
+
+1. **BiG-SCAPE 2.0.3** (`BIGSCAPE`): network of the regions with the paper's flags (`--mix --classify class
+   --alignment-mode local --hybrids-off --include-singletons`), Pfam 35.0 and the antiSMASH-processed MIBiG 4.0 BGCs
+   as references (`--mibig_gbk_dir`, passed with `-r`, so nothing is downloaded at run time), GCF cutoff 0.3 (default).
+2. **BiG-SLiCE 2.0** (`BIGSLICE_CLUSTER`): GCFs of the regions at threshold 0.65 (as the paper). A region farther than
+   0.65 from its nearest GCF centroid is a singleton.
+3. **BiG-SLiCE query** (`BIGSLICE_QUERY`): distance of each region to the precomputed BiG-SLiCE GCF models of the
+   antiSMASH database v4.0b2 (`--bigslice_asdb`, [Zenodo 10.5281/zenodo.17969757](https://doi.org/10.5281/zenodo.17969757),
+   `as_db_bigslice_out.tar.gz`). Only `result/` of that folder is linked into the task, so the shared database is not
+   modified. `--bigslice_models` must be the HMM models the reference was built with (same `hmm_db` md5 in `data.db`).
+4. **Labels** (`BGC_NOVELTY`, `bin/bgc_novelty.py`):
+   - per region: `known` if its BiG-SCAPE GCF contains a MIBiG BGC, otherwise `novel`; `antismashdb_match` if it is within
+     0.65 (`--antismashdb_match_dist`, the BiG-SLiCE GCF threshold) of an antiSMASH-DB GCF, i.e. previously observed in
+     public genomes (not characterized chemistry).
+   - per BiG-SLiCE GCF: novelty score = mean distance of its members to antiSMASH-DB GCFs (the paper's metric),
+     GCF match (mean ≤ 0.65), fraction of members matching, known/novel counts, contig-edge regions, and a flag for
+     GCFs with ≥ 5 regions (`--min_gcf_size`, as the paper). The paper reported the distance without a cutoff; the
+     0.65 match rule is ours.
+5. **Network** (`BGC_NETWORK`, `bin/bgc_gephi_export.py`): Gephi tables of the BiG-SCAPE mix network, with the labels
+   above and, per region, its plasmid, final MobMess cluster (Step 8; the `--network_top_clusters` largest kept by name,
+   others `other`) and replicon group (Step 7). `bridge` marks edges between two BiG-SCAPE families: with local
+   alignment, hybrid regions (e.g. NRPS.hserlactone) reach distance 0 to the regions that share their sub-cluster.
+
+Candidate novel BGCs still need manual inspection of their biosynthetic logic (as in the paper).
+
+**Validation status.** `BGC_NOVELTY` and `BGC_NETWORK` reproduce the 2026-10-23 analysis exactly (472 regions:
+56 known, 167 antiSMASH-DB matches, 13 GCFs + 110 singletons). `BIGSCAPE`, `BIGSLICE_CLUSTER` and `BIGSLICE_QUERY`
+are stub-tested only until the full test passes (`pipeline_test_claude/bgc_novelty/full_test.sbatch`,
+pass/fail by `compare_full.py`); MIBiG is passed with `-r` (reference folder) instead of `-m` in that run.
+
+Output: `results/10b_bgc_novelty/`
+- `bgc_novelty.tsv` (one row per region), `gcf_novelty_bigslice.tsv` (one row per BiG-SLiCE GCF or singleton,
+  GCFs with ≥ 5 regions first, most novel first)
+- `nodes.csv`, `edges.csv`, `bridges.tsv` (Gephi: *File > Import spreadsheet*, nodes first, then edges)
+- `bigscape/` (BiG-SCAPE output; interactive viewer `index.html` with `bigscape.db`), `bigslice/` (BiG-SLiCE GCFs),
+  `query/reports/` (antiSMASH-DB query)
+
 ### 11. Replicon tags, copy number and 3-mer composition (`minimap2`, `samtools`, `kmertools`)
 
 Runs when `--reference_genome` is given (publication: *S. meliloti* GCF_037023865.1).
@@ -721,6 +763,16 @@ Output: `results/14_cointegrates/`
 | `--cazyme_min_tools`  | `2`       | minimum dbCAN tools supporting a CAZyme       |
 | `--signalp_module`    | -         | environment module providing `signalp6` (optional) |
 | `--signalp_model_dir` | -         | SignalP 6 model directory                     |
+| `--bgc_novelty`       | `false`   | run Step 10b (BGC novelty; needs Step 10)      |
+| `--pfam_db`           | required° | directory with a pressed `Pfam-A.hmm` (publication: Pfam 35.0) |
+| `--mibig_gbk_dir`     | required° | antiSMASH-processed MIBiG GenBank files `BGC*.gbk` (publication: MIBiG 4.0) |
+| `--bigslice_models`   | required° | BiG-SLiCE HMM models (`biosynthetic_pfams/`, `sub_pfams/`) of the antiSMASH-DB run |
+| `--bigslice_asdb`     | required° | BiG-SLiCE 2 output for antiSMASH-DB v4.0b2 (folder with `result/data.db`) |
+| `--bigscape_cutoff`   | `0.3`     | BiG-SCAPE GCF cutoff; known = GCF contains a MIBiG BGC |
+| `--bigslice_threshold` | `0.65`   | BiG-SLiCE GCF threshold                        |
+| `--antismashdb_match_dist` | `0.65` | distance to an antiSMASH-DB GCF counted as previously observed |
+| `--min_gcf_size`      | `5`       | GCFs with at least this many regions are flagged |
+| `--network_top_clusters` | `8`    | Gephi nodes: plasmid clusters kept by name     |
 | `--reference_genome`  | -         | reference genome FASTA; enables Step 11       |
 | `--reference_tags`    | `assets/reference_replicon_tags.tsv` | reference replicon `<tab>` tag (Chromosome/pSymA/pSymB) |
 | `--tag_min_ref_cov`   | `30`      | minimum % coverage of the replicon for a tag (0 = publication rule) |
@@ -739,6 +791,7 @@ Output: `results/14_cointegrates/`
 | `--junction_window`   | `5000`    | genes within this distance of a junction / segment end are reported |
 
 \* unless `--skip_annotation`.
+° with `--bgc_novelty`.
 
 ## Software
 
@@ -755,5 +808,6 @@ Output: `results/14_cointegrates/`
   run_dbcan 5.2.9 (DIAMOND 2.2.2); SignalP 6.0 fast and SignalP 4.1g (optional, licensed, environment modules)
 - dnaapler 1.3.0 (MMseqs2 18.8cc5c; clean genomes); minimap2 2.30; samtools 1.22.1; Kmertools 1.0.0; umap-learn 0.5.12; skani 0.3.2
 - eggNOG-mapper 2.1.13 (MMseqs2 16.747c6, DIAMOND 2.0.15); Panaroo 1.6.0 (CD-HIT 4.8.1, MAFFT 7.526); scikit-learn 1.7.1; statsmodels 0.14.6
+- BiG-SCAPE 2.0.3 (SQLAlchemy < 2.1); BiG-SLiCE 2.0 (GitHub CedricHermansBIT/bigslice, commit `817c473`); Pfam 35.0; MIBiG 4.0; antiSMASH-DB v4.0b2 BiG-SLiCE models
 - conda (`-profile conda`)
 - PLSDB 2024_05_31_v2
