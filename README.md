@@ -1,5 +1,7 @@
 # Accessory Plasmids Identifier
 
+[![DOI](https://zenodo.org/badge/1340798908.svg)](https://doi.org/10.5281/zenodo.23816857)
+
 This represent the commands used during my work annotating and describing novel *Sinorhizobium meliloti* accessory plasmids.
 : **"Sinorhizobium meliloti Accessory Plasmidome: Characterization of Diversity, Gene Content, and Organization of Novel Large Plasmids"**
 
